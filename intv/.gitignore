@@ -1,0 +1,5 @@
+*.asm
+*.bin
+*.cfg
+*.rom
+*.lst

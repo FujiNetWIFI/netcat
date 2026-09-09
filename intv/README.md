@@ -39,7 +39,9 @@ background but cuts the card number to six bits, so only GROM cards 0–63 —
 symbols, digits and UPPERCASE — plus 64 GRAM cards are reachable. Lowercase
 therefore lives in GRAM, and the glyphs are GROM cards 64–94 copied out of the
 console's own ROM, so a lowercase letter is pixel-identical to the one the
-Intellivision would have drawn itself.
+Intellivision would have drawn itself. `^` and `_` live in GRAM too, for a
+different reason: GROM is laid out to ASCII-1963, which put an up arrow and a
+left arrow at those two codepoints.
 
 Foreground has eight colours and the STIC primaries contain no magenta, no
 cyan and no grey, so sixteen ANSI colours fold into eight. The table keeps the

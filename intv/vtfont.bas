@@ -14,10 +14,17 @@
 ' letter on screen is pixel-identical to the one the console would have drawn
 ' itself, and nothing has to be redesigned to match.
 '
-'   GRAM 0-30   ASCII 96-126  -- backtick, a-z, { | } ~
+' Two more characters come with it, for a different reason. GROM is laid out
+' to ASCII-1963, which put an up arrow at 0x5E and a left arrow at 0x5F, so
+' cards 62 and 63 draw those arrows and not the circumflex and underscore
+' ASCII-1968 replaced them with. They move into GRAM too, which is why the
+' GRAM block below starts at ASCII 94 rather than 96 and GROM is left covering
+' 32-93 -- and why cell_word still needs only the one compare.
+'
+'   GRAM 0-32   ASCII 94-126  -- ^ _ backtick, a-z, { | } ~
 '   GRAM 43     solid block -- the terminal cursor MOB and the grid edit cursor
 '   GRAM 44-57  DEC special graphics: box drawing, for ESC ( 0
-'   GRAM 58-63  spare
+'   GRAM 33-42, 58-63  spare
 '
 ' GROM card 95 is a solid block already, but it is card 95: out of reach in
 ' FG/BG mode. Hence GRAM 43.
@@ -68,10 +75,10 @@ cell_word: PROCEDURE
         ' drawing, because 128+ is unreachable any other way -- the terminal
         ' drops everything above 126 on the floor.
         #cw_w = (cw_c - 128 + GRAM_DEC0) * 8 + CARD_GRAM
-    ELSEIF cw_c < 96 THEN
-        #cw_w = (cw_c - 32) * 8                 ' GROM card 0-63
+    ELSEIF cw_c < 94 THEN
+        #cw_w = (cw_c - 32) * 8                 ' GROM card 0-61
     ELSE
-        #cw_w = (cw_c - 96) * 8 + CARD_GRAM     ' GRAM card 0-30
+        #cw_w = (cw_c - 94) * 8 + CARD_GRAM     ' GRAM card 0-32
     END IF
     #cw_w = #cw_w + cw_fg + #cw_bgw
 END
@@ -80,14 +87,16 @@ END
 ' font_load: push the GRAM cards up before anything can display them.
 '
 ' IntyBASIC queues a DEFINE for the next frame's interrupt to execute, and the
-' manual puts the ceiling at "approximately 18 cards" per frame, so 31 glyphs
-' plus the block need three passes with a WAIT between them. This runs once,
-' at boot, before the first CLS.
+' manual puts the ceiling at "approximately 18 cards" per frame, so 48 cards
+' need five passes with a WAIT between them. This runs once, at boot, before
+' the first CLS.
 ' ---------------------------------------------------------------------------
 font_load: PROCEDURE
-    DEFINE 0, 16, glyph_lower
+    DEFINE 0, 2, glyph_ascii68
     WAIT
-    DEFINE 16, 15, glyph_lower2
+    DEFINE 2, 16, glyph_lower
+    WAIT
+    DEFINE 18, 15, glyph_lower2
     WAIT
     DEFINE GRAM_BLOCK, 1, glyph_block
     WAIT
@@ -95,8 +104,33 @@ font_load: PROCEDURE
     WAIT
 END
 
+glyph_ascii68:
+    ' GRAM 0  -- ASCII 94, circumflex. Also lifted rather than drawn: it is the
+    ' top three rows of GROM card 10, the asterisk, which is already a caret at
+    ' the font's own stroke weight.
+    BITMAP "...X...."
+    BITMAP "..XXX..."
+    BITMAP ".XX.XX.."
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    ' GRAM 1  -- ASCII 95, underscore. This one has no GROM ancestor to copy,
+    ' so it is drawn: full width on the bottom row, where the font's own
+    ' descenders sit, so that a run of underscores is an unbroken rule. That is
+    ' the same choice glyph_dec makes for the DEC horizontal.
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "XXXXXXXX"
+
 glyph_lower:
-    ' GRAM 0  -- ASCII 96, backtick
+    ' GRAM 2  -- ASCII 96, backtick
     BITMAP "....X..."
     BITMAP ".....X.."
     BITMAP "......X."
@@ -105,7 +139,7 @@ glyph_lower:
     BITMAP "........"
     BITMAP "........"
     BITMAP "........"
-    ' GRAM 1  -- ASCII 97, lowercase a
+    ' GRAM 3  -- ASCII 97, lowercase a
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXX.."
@@ -114,7 +148,7 @@ glyph_lower:
     BITMAP ".XX.XX.."
     BITMAP ".XXXXXX."
     BITMAP "........"
-    ' GRAM 2  -- ASCII 98, lowercase b
+    ' GRAM 4  -- ASCII 98, lowercase b
     BITMAP ".XXX...."
     BITMAP "..XX...."
     BITMAP "..XXXXX."
@@ -123,7 +157,7 @@ glyph_lower:
     BITMAP "..XX.XX."
     BITMAP "..XXXXX."
     BITMAP "........"
-    ' GRAM 3  -- ASCII 99, lowercase c
+    ' GRAM 5  -- ASCII 99, lowercase c
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXXX."
@@ -132,7 +166,7 @@ glyph_lower:
     BITMAP ".XX....."
     BITMAP ".XXXXXX."
     BITMAP "........"
-    ' GRAM 4  -- ASCII 100, lowercase d
+    ' GRAM 6  -- ASCII 100, lowercase d
     BITMAP "....XXX."
     BITMAP "....XX.."
     BITMAP ".XXXXX.."
@@ -141,7 +175,7 @@ glyph_lower:
     BITMAP ".XX.XX.."
     BITMAP ".XXXXX.."
     BITMAP "........"
-    ' GRAM 5  -- ASCII 101, lowercase e
+    ' GRAM 7  -- ASCII 101, lowercase e
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXXX."
@@ -150,7 +184,7 @@ glyph_lower:
     BITMAP ".XX....."
     BITMAP ".XXXXXX."
     BITMAP "........"
-    ' GRAM 6  -- ASCII 102, lowercase f
+    ' GRAM 8  -- ASCII 102, lowercase f
     BITMAP "........"
     BITMAP "..XXXXX."
     BITMAP "..XX...."
@@ -159,7 +193,7 @@ glyph_lower:
     BITMAP "..XX...."
     BITMAP "..XX...."
     BITMAP "........"
-    ' GRAM 7  -- ASCII 103, lowercase g
+    ' GRAM 9  -- ASCII 103, lowercase g
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXXX."
@@ -168,7 +202,7 @@ glyph_lower:
     BITMAP ".XXXXX.."
     BITMAP "....XX.."
     BITMAP ".XXXXX.."
-    ' GRAM 8  -- ASCII 104, lowercase h
+    ' GRAM 10 -- ASCII 104, lowercase h
     BITMAP ".XX....."
     BITMAP ".XX....."
     BITMAP ".XXXXX.."
@@ -177,7 +211,7 @@ glyph_lower:
     BITMAP ".XX.XX.."
     BITMAP ".XX.XXX."
     BITMAP "........"
-    ' GRAM 9  -- ASCII 105, lowercase i
+    ' GRAM 11 -- ASCII 105, lowercase i
     BITMAP "...XX..."
     BITMAP "........"
     BITMAP "..XXX..."
@@ -186,7 +220,7 @@ glyph_lower:
     BITMAP "...XX..."
     BITMAP ".XXXXXX."
     BITMAP "........"
-    ' GRAM 10 -- ASCII 106, lowercase j
+    ' GRAM 12 -- ASCII 106, lowercase j
     BITMAP ".....XX."
     BITMAP "........"
     BITMAP ".....XX."
@@ -195,7 +229,7 @@ glyph_lower:
     BITMAP "..XX.XX."
     BITMAP "..XX.XX."
     BITMAP "..XXXXX."
-    ' GRAM 11 -- ASCII 107, lowercase k
+    ' GRAM 13 -- ASCII 107, lowercase k
     BITMAP ".XX....."
     BITMAP ".XX....."
     BITMAP ".XX..XX."
@@ -204,7 +238,7 @@ glyph_lower:
     BITMAP ".XX..XX."
     BITMAP ".XX..XX."
     BITMAP "........"
-    ' GRAM 12 -- ASCII 108, lowercase l
+    ' GRAM 14 -- ASCII 108, lowercase l
     BITMAP "..XXX..."
     BITMAP "...XX..."
     BITMAP "...XX..."
@@ -213,7 +247,7 @@ glyph_lower:
     BITMAP "...XX..."
     BITMAP ".XXXXXX."
     BITMAP "........"
-    ' GRAM 13 -- ASCII 109, lowercase m
+    ' GRAM 15 -- ASCII 109, lowercase m
     BITMAP "........"
     BITMAP "........"
     BITMAP "XXXXXXX."
@@ -222,7 +256,7 @@ glyph_lower:
     BITMAP "XX.X.XX."
     BITMAP "XX.X.XX."
     BITMAP "........"
-    ' GRAM 14 -- ASCII 110, lowercase n
+    ' GRAM 16 -- ASCII 110, lowercase n
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXXX."
@@ -231,7 +265,7 @@ glyph_lower:
     BITMAP "..XX.XX."
     BITMAP "..XX.XX."
     BITMAP "........"
-    ' GRAM 15 -- ASCII 111, lowercase o
+    ' GRAM 17 -- ASCII 111, lowercase o
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXXX."
@@ -242,7 +276,7 @@ glyph_lower:
     BITMAP "........"
 
 glyph_lower2:
-    ' GRAM 16 -- ASCII 112, lowercase p
+    ' GRAM 18 -- ASCII 112, lowercase p
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXXX."
@@ -251,7 +285,7 @@ glyph_lower2:
     BITMAP "..XXXXX."
     BITMAP "..XX...."
     BITMAP "..XX...."
-    ' GRAM 17 -- ASCII 113, lowercase q
+    ' GRAM 19 -- ASCII 113, lowercase q
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXX.."
@@ -260,7 +294,7 @@ glyph_lower2:
     BITMAP ".XXXXX.."
     BITMAP "....XX.."
     BITMAP "....XXX."
-    ' GRAM 18 -- ASCII 114, lowercase r
+    ' GRAM 20 -- ASCII 114, lowercase r
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXXX."
@@ -269,7 +303,7 @@ glyph_lower2:
     BITMAP "..XX...."
     BITMAP "..XX...."
     BITMAP "........"
-    ' GRAM 19 -- ASCII 115, lowercase s
+    ' GRAM 21 -- ASCII 115, lowercase s
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXXX."
@@ -278,7 +312,7 @@ glyph_lower2:
     BITMAP ".....XX."
     BITMAP ".XXXXXX."
     BITMAP "........"
-    ' GRAM 20 -- ASCII 116, lowercase t
+    ' GRAM 22 -- ASCII 116, lowercase t
     BITMAP "........"
     BITMAP "..XX...."
     BITMAP ".XXXXXX."
@@ -287,7 +321,7 @@ glyph_lower2:
     BITMAP "..XX...."
     BITMAP "..XXXXX."
     BITMAP "........"
-    ' GRAM 21 -- ASCII 117, lowercase u
+    ' GRAM 23 -- ASCII 117, lowercase u
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XX.XX.."
@@ -296,7 +330,7 @@ glyph_lower2:
     BITMAP ".XX.XX.."
     BITMAP ".XXXXXX."
     BITMAP "........"
-    ' GRAM 22 -- ASCII 118, lowercase v
+    ' GRAM 24 -- ASCII 118, lowercase v
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XX..XX."
@@ -305,7 +339,7 @@ glyph_lower2:
     BITMAP "..XXXX.."
     BITMAP "...XX..."
     BITMAP "........"
-    ' GRAM 23 -- ASCII 119, lowercase w
+    ' GRAM 25 -- ASCII 119, lowercase w
     BITMAP "........"
     BITMAP "........"
     BITMAP "XX.X.XX."
@@ -314,7 +348,7 @@ glyph_lower2:
     BITMAP "XXXXXXX."
     BITMAP ".XX.XX.."
     BITMAP "........"
-    ' GRAM 24 -- ASCII 120, lowercase x
+    ' GRAM 26 -- ASCII 120, lowercase x
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XX..XX."
@@ -323,7 +357,7 @@ glyph_lower2:
     BITMAP "..XXXX.."
     BITMAP ".XX..XX."
     BITMAP "........"
-    ' GRAM 25 -- ASCII 121, lowercase y
+    ' GRAM 27 -- ASCII 121, lowercase y
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXX.XX."
@@ -332,7 +366,7 @@ glyph_lower2:
     BITMAP "..XXXXX."
     BITMAP ".....XX."
     BITMAP "..XXXXX."
-    ' GRAM 26 -- ASCII 122, lowercase z
+    ' GRAM 28 -- ASCII 122, lowercase z
     BITMAP "........"
     BITMAP "........"
     BITMAP ".XXXXXX."
@@ -341,7 +375,7 @@ glyph_lower2:
     BITMAP ".XX....."
     BITMAP ".XXXXXX."
     BITMAP "........"
-    ' GRAM 27 -- ASCII 123, left brace
+    ' GRAM 29 -- ASCII 123, left brace
     BITMAP "....XXX."
     BITMAP "....X..."
     BITMAP "....X..."
@@ -350,7 +384,7 @@ glyph_lower2:
     BITMAP "....X..."
     BITMAP "....XXX."
     BITMAP "........"
-    ' GRAM 28 -- ASCII 124, pipe
+    ' GRAM 30 -- ASCII 124, pipe
     BITMAP "...XX..."
     BITMAP "...XX..."
     BITMAP "...XX..."
@@ -359,7 +393,7 @@ glyph_lower2:
     BITMAP "...XX..."
     BITMAP "...XX..."
     BITMAP "...XX..."
-    ' GRAM 29 -- ASCII 125, right brace
+    ' GRAM 31 -- ASCII 125, right brace
     BITMAP ".XXX...."
     BITMAP "...X...."
     BITMAP "...X...."
@@ -368,7 +402,7 @@ glyph_lower2:
     BITMAP "...X...."
     BITMAP ".XXX...."
     BITMAP "........"
-    ' GRAM 30 -- ASCII 126, tilde
+    ' GRAM 32 -- ASCII 126, tilde
     BITMAP "........"
     BITMAP "........"
     BITMAP "........"

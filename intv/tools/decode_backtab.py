@@ -8,8 +8,9 @@ packs a cell as
     bit  13   12   11   10    9   8..3        2..0
          bg2  bg3  GRAM bg1  bg0  card 0-63   fg 0-7
 
-GROM card N is ASCII N+32, covering 32..95. GRAM cards 0..30 are ASCII 96..126
-(vtfont.bas), and GRAM 43 is the solid block used for cursors.
+GROM card N is ASCII N+32, but GROM is laid out to ASCII-1963, so cards 62 and
+63 are an up arrow and a left arrow rather than ^ and _. GRAM cards 0..32 are
+ASCII 94..126 (vtfont.bas), and GRAM 43 is the solid block used for cursors.
 """
 import re, struct, sys, pathlib
 
@@ -23,13 +24,20 @@ DEC = "◆▒┘┐┌└┼─├┤┴┬│·"
 def glyph(w):
     card, gram = (w >> 3) & 0x3F, (w >> 11) & 1
     if gram:
-        if card < 31:
-            return chr(96 + card)
+        if card < 33:
+            return chr(94 + card)
         if card == 43:
             return "█"
         if 44 <= card < 44 + len(DEC):
             return DEC[card - 44]
         return "?"
+    # Nothing should reach GROM 62/63 any more -- vtfont.bas routes ^ and _
+    # into GRAM -- so show them as the arrows they really are, and a
+    # regression announces itself in the dump instead of hiding in it.
+    if card == 62:
+        return "↑"
+    if card == 63:
+        return "←"
     return chr(32 + card)
 
 def colours(w):

@@ -42,8 +42,12 @@
     ' 16 entries is far more than a human can outrun a 60 Hz scan with, and a
     ' power of two so the wrap is an AND rather than a compare.
     CONST ECS_QLEN  = 16
-    CONST ECS_QMASK = 15
-    CONST SC_ECSQ   = $9500     ' clear of SC_TERM, which ends at $94C7
+    ' 64 entries, not 16. A mailbox transaction can WAIT up to 900 frames, and
+    ' the scan keeps running in the frame interrupt throughout -- so the ring
+    ' has to hold everything typed across a stall, not just a couple of keys.
+    ' Sixteen silently dropped the rest.
+    CONST ECS_QMASK = 63
+    CONST SC_ECSQ   = $9400     ' $9400-$943F; the row map follows at $9440
 
     DIM ecs_present             ' set once at boot; 0 disables everything here
     DIM ecs_raw, ecs_plast      ' interrupt side only

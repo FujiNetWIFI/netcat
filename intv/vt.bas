@@ -38,7 +38,11 @@ rowaddr:
     DIM vt_col, vt_row, vt_pend, vt_slot, vt_i
     DIM sr_top, sr_bot
     DIM blank_lo, blank_hi
-    DIM an_state, an_n
+    ' an_state, an_n and an_awm belong to vtansi.bas, but vt.bas is included
+    ' first and touches them -- vt_putc has to know whether autowrap is on --
+    ' so they are declared here. IntyBASIC creates a variable at first use, so
+    ' whichever file mentions one first is the one that has to DIM it.
+    DIM an_state, an_n, an_awm
     ' The repaint bounds, written here and consumed by vtview.bas.
     DIM vp_full, vp_dtop, vp_dbot
     DIM #vt_base, #vt_cell
@@ -84,6 +88,7 @@ vt_reset: PROCEDURE
     vt_row = 0
     vt_pend = 0
     an_state = 0
+    an_awm = 1
     GOSUB vt_attr
     vt_i = USR TFILL2(TBUF, TCOLS * TROWS, blank_lo, blank_hi)
     GOSUB vt_locate
@@ -164,57 +169,17 @@ vt_putc: PROCEDURE
     IF vt_row > vp_dbot THEN vp_dbot = vt_row
 vt_pc_moved:
     IF vt_col = TCOLS - 1 THEN
-        vt_pend = 1
+        ' DECAWM. With autowrap off the cursor stays put and each further
+        ' character overwrites column 79, which is what a program that turned
+        ' it off is relying on.
+        IF an_awm THEN vt_pend = 1
     ELSE
         vt_col = vt_col + 1
         #vt_cell = #vt_cell + 2
     END IF
 END
 
-' ---------------------------------------------------------------------------
-' an_swallow: eat an escape sequence without acting on it.
-'
-' A placeholder for the real parser, and modelled on the sibling Astrocade
-' port (netcat/astrocade/term.inc): state 1 has just seen ESC, state 2 is
-' inside a CSI and runs to a final byte in $40-$7E, state 3 swallows one more
-' byte for the character-set selectors. The 32-byte ceiling is the important
-' part -- without it a corrupted stream can swallow the rest of the session.
-' ---------------------------------------------------------------------------
-an_swallow: PROCEDURE
-    IF an_state = 3 THEN an_state = 0 : RETURN
-    IF an_state = 1 THEN
-        an_n = 0
-        IF nc_c = 91 THEN an_state = 2 : RETURN         ' [
-        IF nc_c = 40 THEN an_state = 3 : RETURN         ' (
-        IF nc_c = 41 THEN an_state = 3 : RETURN         ' )
-        IF nc_c = 35 THEN an_state = 3 : RETURN         ' #
-        an_state = 0                                    ' one-byte sequence
-        RETURN
-    END IF
-    an_n = an_n + 1                                     ' state 2: inside a CSI
-    IF an_n >= 32 THEN an_state = 0 : RETURN
-    IF nc_c < 64 THEN RETURN
-    IF nc_c > 126 THEN RETURN
-    an_state = 0
-END
-
-' ---------------------------------------------------------------------------
-' vt_feed: one received byte.
-'
-' Ordered by how often each case fires, and written as nested compares rather
-' than "IF a >= 32 AND a <= 126": IntyBASIC has no short-circuit, so a compound
-' condition materialises both terms and ANDs them -- thirteen instructions for
-' what two compares do here.
-' ---------------------------------------------------------------------------
-vt_feed: PROCEDURE
-    IF an_state THEN GOSUB an_swallow : RETURN
-    IF nc_c > 126 THEN RETURN                   ' DEL and 8-bit: drop
-    IF nc_c >= 32 THEN GOSUB vt_putc : RETURN
-    IF nc_c = 13 THEN GOSUB vt_cr : RETURN
-    IF nc_c = 10 THEN GOSUB vt_index : RETURN
-    IF nc_c = 8 THEN GOSUB vt_bs : RETURN
-    IF nc_c = 9 THEN GOSUB vt_tab : RETURN
-    IF nc_c = 27 THEN an_state = 1 : RETURN
-    IF nc_c = 11 THEN GOSUB vt_index : RETURN   ' VT
-    IF nc_c = 12 THEN GOSUB vt_index : RETURN   ' FF
-END
+' The escape swallower that used to live here, and the vt_feed that called
+' it, are gone: vtansi.bas interprets these sequences now rather than eating
+' them. an_state is still declared above, because vtansi.bas drives it and
+' vt.bas is included first.

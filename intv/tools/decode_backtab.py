@@ -63,6 +63,13 @@ def dump_state(memfile, lst, rows=None):
             "AN_STATE", "TERM_FG", "BLANK_LO", "BLANK_HI"]
     print("   state:", "  ".join("%s=%d" % (n, w[sym[n]] & 0xFF)
                                  for n in want if n in sym))
+    url = ""
+    for i in range(256):
+        c = w[0x9200 + i] & 0xFF
+        if c == 0:
+            break
+        url += chr(c) if 32 <= c < 127 else "."
+    print("   SC_URL: %s" % url)
     rowmap = [w[0x9440 + i] & 0xFF for i in range(25)]
     print("   rowmap:", " ".join("%d" % r for r in rowmap))
     print("   TBUF (logical rows, columns 0-79):")

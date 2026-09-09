@@ -71,6 +71,26 @@
     ' $9400-$943F is the ECS key ring (ecskbd.bas) and $9440 the row map
     ' (vt.bas); the 80x25 buffer has $8000-$8F9F.
 
+' ---------------------------------------------------------------------------
+' The window-size query.
+'
+' NetworkProtocolSSH reads term, cols and rows out of the devicespec query and
+' hands them to ssh_channel_request_pty_size(); NetworkProtocolTelnet does the
+' same for its terminal type and NAWS. Without them the far end assumes 80x24
+' of something called "vanilla" and a curses program draws to the wrong shape.
+'
+' The type is xterm rather than linux on purpose. Both are 80x25 and both do
+' colour, but the linux terminfo's smacs/rmacs are ESC [ 11 m / ESC [ 10 m --
+' the IBM alternate character set -- while this terminal implements ESC ( 0,
+' which is what xterm advertises. Claim linux and the box drawing never fires.
+'
+' Only TELNET and SSH get it: NetworkProtocolTCP ignores a query, and a spec
+' that brought its own is left alone so ?term=ansi stays available by hand.
+lit_query:
+    DATA 63,116,101,114,109,61,120,116,101,114,109,38,99,111
+    DATA 108,115,61,56,48,38,114,111,119,115,61,50,53
+    CONST LEN_QUERY = 27
+
 ' The default devicespec (24 bytes): "N:TCP://TCPBIN.COM:4242/"
 lit_spec:
     DATA 78,58,84,67,80,58,47,47,84,67,80,66,73,78
@@ -78,6 +98,8 @@ lit_spec:
     CONST LEN_SPEC = 24
 
     DIM nc_i, nc_c, ts_fin
+    DIM uq_i, uq_c, uq_len, uq_ok
+    DIM #an_a, #an_b
     DIM cur_on, cur_lit, cur_col, cur_row
     DIM #cur_attr
     DIM #cur_x, #cur_y
@@ -93,6 +115,22 @@ lit_spec:
     INCLUDE "kbd.bas"
     INCLUDE "vt.bas"
     INCLUDE "vtview.bas"
+
+    ' The parser goes in the second ROM segment. $5000-$6FFF is 8K words and
+    ' the terminal core had already spent most of it; $D000-$DFFF is the next
+    ' window the cartridge maps, and fujinet-config/intv uses the same pair on
+    ' this exact hardware. Everything after this ORG -- the parser, this file's
+    ' own procedures, main, and the IntyBASIC epilogue -- lands there, so the
+    ' "guard" make target watches for a spill into the unmapped $E000.
+    ASM ORG $D000
+    INCLUDE "vtansi.bas"
+
+    ' ...and the rest into the third. $D000-$DFFF is 4K words and the parser
+    ' fills it; without this the compiler silently continues into $E000, which
+    ' is not mapped -- the cart boots and then runs off into unprogrammed GROM
+    ' two instructions later. That is what the "guard" make target checks for,
+    ' and it is how this ORG came to be here.
+    ASM ORG $F000
 
 
 ' ---------------------------------------------------------------------------
@@ -194,21 +232,48 @@ END
 ' defers the rest to the next pass, one frame later.
 ' ---------------------------------------------------------------------------
 term_send_keys: PROCEDURE
-    IF ecs_present = 0 THEN RETURN
     #fn_txlen = 0
+
+    ' Answers to DSR and DA first: a program that asked one is blocked until
+    ' it arrives, and it rides out with whatever was typed rather than costing
+    ' a mailbox round trip of its own.
+    IF an_rlen THEN
+        FOR ts_fin = 0 TO an_rlen - 1
+            POKE (FN_TX + ts_fin), PEEK(SC_REPLY + ts_fin) AND 255
+        NEXT ts_fin
+        #fn_txlen = an_rlen
+        an_rlen = 0
+    END IF
+
+    IF ecs_present = 0 THEN
+        IF #fn_txlen = 0 THEN RETURN
+        fn_len = #fn_txlen
+        GOSUB net_write
+        RETURN
+    END IF
     GOSUB ecs_getkey
     DO WHILE ecs_k <> ECS_NONE
         IF ecs_k = ECS_ENTER THEN
+            ' A bare CR. This used to send CR LF, which is right for a
+            ' line-oriented socket and wrong for a terminal: over a pty the LF
+            ' is a second newline, so every RETURN left a blank line behind.
+            ' The TELNET handler in the firmware adds what NVT needs.
             POKE (FN_TX + #fn_txlen), 13
-            POKE (FN_TX + #fn_txlen + 1), 10
-            #fn_txlen = #fn_txlen + 2
+            #fn_txlen = #fn_txlen + 1
         ELSEIF ecs_k >= ECS_LEFT AND ecs_k <= ECS_DOWN THEN
             ts_fin = 68                     ' LEFT
             IF ecs_k = ECS_RIGHT THEN ts_fin = 67
             IF ecs_k = ECS_UP THEN ts_fin = 65
             IF ecs_k = ECS_DOWN THEN ts_fin = 66
             POKE (FN_TX + #fn_txlen), 27
-            POKE (FN_TX + #fn_txlen + 1), 91
+            ' DECCKM: with application cursor keys set, the arrows are
+            ' ESC O A and not ESC [ A. readline and vi both turn it on, and
+            ' both stop understanding the arrows if it is ignored.
+            IF an_ckm THEN
+                POKE (FN_TX + #fn_txlen + 1), 79
+            ELSE
+                POKE (FN_TX + #fn_txlen + 1), 91
+            END IF
             POKE (FN_TX + #fn_txlen + 2), ts_fin
             #fn_txlen = #fn_txlen + 3
         ELSE
@@ -232,6 +297,43 @@ seed_url: PROCEDURE
         POKE (SC_URL + nc_i), PEEK(VARPTR lit_spec(0) + nc_i) AND 255
     NEXT nc_i
     POKE (SC_URL + LEN_SPEC), 0
+END
+
+' ---------------------------------------------------------------------------
+' url_wantsz: append the window-size query to SC_URL, in place.
+'
+' Runs after the URL screen and before the OPEN. Three ways to decline: the
+' spec already has a query, the scheme is not one that reads it, or there is
+' not room -- FN_TX is 256 bytes and the whole devicespec has to fit in it
+' alongside the query, so a spec near the buffer ceiling is left as typed.
+' ---------------------------------------------------------------------------
+url_wantsz: PROCEDURE
+    #fn_src = SC_URL : ls_max = 255 : GOSUB fn_strlen
+    uq_len = fn_len
+    IF uq_len + LEN_QUERY > 250 THEN RETURN
+
+    uq_ok = 0
+    FOR uq_i = 0 TO uq_len - 1
+        uq_c = PEEK(SC_URL + uq_i) AND 255
+        IF uq_c = 63 THEN RETURN            ' "?" -- the caller knows better
+    NEXT uq_i
+
+    ' Scheme test on the two letters after "N:", which is enough to tell
+    ' TELNET and SSH apart from TCP, UDP, HTTP and the rest.
+    uq_c = PEEK(SC_URL + 2) AND 255
+    IF uq_c = 84 THEN uq_ok = 1             ' T(ELNET)
+    IF uq_c = 116 THEN uq_ok = 1
+    IF uq_c = 83 THEN uq_ok = 1             ' S(SH)
+    IF uq_c = 115 THEN uq_ok = 1
+    IF uq_ok = 0 THEN RETURN
+    uq_c = PEEK(SC_URL + 3) AND 255
+    IF uq_c = 67 THEN RETURN                ' "SC..." is not SSH
+    IF uq_c = 99 THEN RETURN
+
+    FOR uq_i = 0 TO LEN_QUERY - 1
+        POKE (SC_URL + uq_len + uq_i), PEEK(VARPTR lit_query(0) + uq_i) AND 255
+    NEXT uq_i
+    POKE (SC_URL + uq_len + LEN_QUERY), 0
 END
 
 ' ---------------------------------------------------------------------------
@@ -320,8 +422,9 @@ main:
 dial:
     GOSUB url_screen
 
-    ' Open the accepted devicespec: read-write, no translation (we handle
-    ' CR LF ourselves).
+    ' Open the accepted devicespec: read-write, no translation (we are the
+    ' terminal, so nothing else should be rewriting the stream).
+    GOSUB url_wantsz
     CLS
     PRINT AT 0 COLOR COL_NORMAL, "DIALING..."
     #fn_txlen = 0
@@ -343,8 +446,12 @@ con_wait:
     END IF
 
     CLS
+    GOSUB an_sgr_reset
     GOSUB vt_reset
     GOSUB vp_reset
+    an_awm = 1
+    an_ckm = 0
+    an_rlen = 0
     GOSUB ecs_flush
     GOSUB cur_show
 
@@ -375,7 +482,7 @@ lost_wait:
         IF fn_ok THEN
             FOR nc_i = 0 TO #net_gotlen - 1
                 nc_c = PEEK(FN_RX + nc_i) AND 255
-                GOSUB vt_feed
+                GOSUB an_feed
             NEXT nc_i
         END IF
     END IF

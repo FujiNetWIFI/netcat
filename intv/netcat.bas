@@ -143,6 +143,7 @@ lit_spec:
 frame_tick: PROCEDURE
     GOSUB ecs_tick
     GOSUB cur_tick
+    GOSUB ov_tick
 END
 
 ' ---------------------------------------------------------------------------
@@ -212,6 +213,7 @@ term_keypad: PROCEDURE
         BORDER BORDER_FOLLOW
         GOSUB vp_follow
         vp_full = 1
+        GOSUB ov_show
     END IF
 END
 

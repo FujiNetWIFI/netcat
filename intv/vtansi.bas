@@ -52,6 +52,16 @@ bgmap:
     DIM sg_fg, sg_bg, sg_bold, sg_rev
     DIM sa_f, sa_b, sa_bs
     DIM an_ckm, an_rlen
+    DIM an_g0, an_g1, an_gl, an_dec, an_csw
+
+' DEC special graphics. The far end sends ordinary ASCII and the selected
+' character set decides what it means, so this maps the 32 codes from 95 to
+' 126 either to themselves or to 128+n, which vtfont.bas's cell_word reads as
+' GRAM card GRAM_DEC0+n. Fourteen of them are drawn; the rest of the DEC set
+' (scan lines, plus/minus, the arrows) has no card and stays as ASCII.
+dectab:
+    DATA  95,128,129, 98, 99,100,101,102,103,104,105,130,131,132,133,134
+    DATA 111,112,135,114,115,136,137,138,139,140,121,122,123,124,125,141
     DIM ve_row, ve_col, ve_n, ve_slot
     DIM vg_row, vg_col
 
@@ -171,7 +181,7 @@ an_feed: PROCEDURE
     IF an_state = AN_CSI THEN GOSUB an_csi : RETURN
     IF an_state = AN_ESC THEN GOSUB an_esc : RETURN
     IF an_state = AN_OSC THEN GOSUB an_osc : RETURN
-    IF an_state = AN_CHARSET THEN an_state = AN_GROUND : RETURN
+    IF an_state = AN_CHARSET THEN GOSUB an_charset : RETURN
     ' AN_IGNORE: run to the final byte and drop the whole sequence
     IF nc_c < 64 THEN RETURN
     IF nc_c > 126 THEN RETURN
@@ -181,7 +191,14 @@ END
 ' Ordered by frequency: printable text is almost everything a session sends.
 an_ground: PROCEDURE
     IF nc_c > 126 THEN RETURN                   ' DEL and 8-bit: drop
-    IF nc_c >= 32 THEN GOSUB vt_putc : RETURN
+    IF nc_c >= 32 THEN
+        ' Line drawing is a translation, not a mode the writer knows about.
+        IF an_dec THEN
+            IF nc_c >= 95 THEN nc_c = dectab(nc_c - 95)
+        END IF
+        GOSUB vt_putc
+        RETURN
+    END IF
     IF nc_c = 13 THEN GOSUB vt_cr : RETURN
     IF nc_c = 10 THEN GOSUB vt_index : RETURN
     IF nc_c = 8 THEN GOSUB vt_bs : RETURN
@@ -189,7 +206,32 @@ an_ground: PROCEDURE
     IF nc_c = 27 THEN an_state = AN_ESC : RETURN
     IF nc_c = 11 THEN GOSUB vt_index : RETURN
     IF nc_c = 12 THEN GOSUB vt_index : RETURN
-    ' BEL, SO and SI: nothing to do here yet
+    IF nc_c = 14 THEN an_gl = 1 : GOSUB an_cslock : RETURN      ' SO -- G1
+    IF nc_c = 15 THEN an_gl = 0 : GOSUB an_cslock : RETURN      ' SI -- G0
+    ' BEL and the rest: nothing to do
+END
+
+' ---------------------------------------------------------------------------
+' Character sets. ESC ( 0 designates DEC special graphics into G0, ESC ( B
+' puts ASCII back; ESC ) does the same for G1, and SO/SI choose between them.
+' an_dec caches the answer so the write path costs one test, not three.
+' ---------------------------------------------------------------------------
+an_charset: PROCEDURE
+    an_state = AN_GROUND
+    IF an_csw = 2 THEN RETURN                   ' ESC # -- line attributes
+    an_i = 0
+    IF nc_c = 48 THEN an_i = 1                  ' '0' -- DEC graphics
+    IF an_csw = 1 THEN
+        an_g1 = an_i
+    ELSE
+        an_g0 = an_i
+    END IF
+    GOSUB an_cslock
+END
+
+an_cslock: PROCEDURE
+    an_dec = an_g0
+    IF an_gl THEN an_dec = an_g1
 END
 
 an_esc: PROCEDURE
@@ -205,9 +247,9 @@ an_esc: PROCEDURE
         RETURN
     END IF
     IF nc_c = 93 THEN an_state = AN_OSC : an_n = 0 : RETURN   ' ]
-    IF nc_c = 40 THEN an_state = AN_CHARSET : RETURN          ' (
-    IF nc_c = 41 THEN an_state = AN_CHARSET : RETURN          ' )
-    IF nc_c = 35 THEN an_state = AN_CHARSET : RETURN          ' #
+    IF nc_c = 40 THEN an_state = AN_CHARSET : an_csw = 0 : RETURN   ' (  G0
+    IF nc_c = 41 THEN an_state = AN_CHARSET : an_csw = 1 : RETURN   ' )  G1
+    IF nc_c = 35 THEN an_state = AN_CHARSET : an_csw = 2 : RETURN   ' #
     IF nc_c = 68 THEN GOSUB vt_index : RETURN                 ' D  IND
     IF nc_c = 77 THEN GOSUB vt_rindex : RETURN                ' M  RI
     IF nc_c = 69 THEN GOSUB vt_cr : GOSUB vt_index : RETURN   ' E  NEL
@@ -238,6 +280,10 @@ an_decrc: PROCEDURE
 END
 
 an_ris: PROCEDURE
+    an_g0 = 0
+    an_g1 = 0
+    an_gl = 0
+    an_dec = 0
     GOSUB an_sgr_reset
     GOSUB vt_reset
     an_awm = 1

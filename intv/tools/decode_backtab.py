@@ -16,12 +16,20 @@ import re, struct, sys, pathlib
 STIC = ["black", "blue", "red", "tan", "dkgreen", "green", "yellow", "white",
         "grey", "cyan", "orange", "brown", "pink", "ltblue", "yelgrn", "purple"]
 
+# GRAM 44-57 are the DEC special-graphics cards, in the order vtfont.bas
+# defines them; shown as the box characters they draw.
+DEC = "◆▒┘┐┌└┼─├┤┴┬│·"
+
 def glyph(w):
     card, gram = (w >> 3) & 0x3F, (w >> 11) & 1
     if gram:
         if card < 31:
             return chr(96 + card)
-        return "█" if card == 43 else "?"
+        if card == 43:
+            return "█"
+        if 44 <= card < 44 + len(DEC):
+            return DEC[card - 44]
+        return "?"
     return chr(32 + card)
 
 def colours(w):
@@ -34,6 +42,9 @@ def main(path):
     print("      +" + "-" * 20 + "+")
     for r in range(12):
         print("   %2d |%s|" % (r, "".join(glyph(w) for w in bt[r*20:(r+1)*20])))
+    if "--cards" in sys.argv:
+        print("   raw (gram,card) of row 0:",
+              [( (w>>11)&1, (w>>3)&0x3F ) for w in bt[0:12]])
     print("      +" + "-" * 20 + "+")
     seen = {}
     for w in bt:

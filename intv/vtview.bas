@@ -28,6 +28,10 @@
     ' from vt_putc and vt_scroll_up and is included first.
     DIM vx, vy, vp_track, vp_i, vp_slot, vp_d
     DIM cur_vis
+    DIM ov_frames, ov_p, ov_i
+
+    CONST OV_ROW    = 220       ' BACKTAB row 11
+    CONST OV_FRAMES = 90        ' about a second and a half
 
 ' ---------------------------------------------------------------------------
 ' vp_reset: window home, following, everything dirty.
@@ -81,6 +85,10 @@ END
 ' ---------------------------------------------------------------------------
 vp_paint: PROCEDURE
     FOR vp_i = 0 TO VROWS - 1
+        ' The status overlay borrows the bottom row while it is up.
+        IF ov_frames THEN
+            IF vp_i = VROWS - 1 THEN GOTO vp_skip
+        END IF
         IF vp_full = 0 THEN
             IF vy + vp_i < vp_dtop THEN GOTO vp_skip
             IF vy + vp_i > vp_dbot THEN GOTO vp_skip
@@ -119,6 +127,44 @@ vp_cursor: PROCEDURE
 END
 
 ' ---------------------------------------------------------------------------
+' ov_show / ov_tick: the status line, which is only there when it is useful.
+'
+' Twelve rows is not enough to spend one on a permanent status bar, and most
+' of the time there is nothing to say -- the border colour already carries the
+' follow/free state. So the position and mode appear on the bottom row for a
+' second and a half after the window is moved, and then that row goes back to
+' being terminal. vp_paint leaves it alone while the overlay is up.
+'
+' The countdown runs in the frame interrupt but the repaint does not: ov_tick
+' only raises the dirty flag, and the main loop puts the row back.
+' ---------------------------------------------------------------------------
+ov_show: PROCEDURE
+    #cw_bgw = bg_scatter(CS_BLACK)
+    PRINT AT OV_ROW COLOR COL_DIM, "C   R               "
+    ov_p = OV_ROW + 1 : ov_i = vx : GOSUB ov_num2
+    ov_p = OV_ROW + 5 : ov_i = vy : GOSUB ov_num2
+    IF vp_track THEN
+        PRINT AT OV_ROW + 8 COLOR COL_HILIGHT, "FOLLOW"
+    ELSE
+        PRINT AT OV_ROW + 8 COLOR COL_HILIGHT, "FREE"
+    END IF
+    GOSUB an_apply              ' put the terminal's own attribute back
+    ov_frames = OV_FRAMES
+END
+
+ov_num2: PROCEDURE
+    cw_fg = COL_DIM
+    cw_c = 48 + ov_i / 10 : GOSUB cell_word : #BACKTAB(ov_p) = #cw_w
+    cw_c = 48 + ov_i % 10 : GOSUB cell_word : #BACKTAB(ov_p + 1) = #cw_w
+END
+
+ov_tick: PROCEDURE
+    IF ov_frames = 0 THEN RETURN
+    ov_frames = ov_frames - 1
+    IF ov_frames = 0 THEN vp_full = 1
+END
+
+' ---------------------------------------------------------------------------
 ' vp_pan: move the window by hand. Any pan drops out of FOLLOW -- reaching for
 ' the disc is the same as saying "stop moving on me".
 ' ---------------------------------------------------------------------------
@@ -138,6 +184,7 @@ vp_pan: PROCEDURE
         IF vy < VYMAX THEN vy = vy + 1
     END IF
     vp_full = 1
+    GOSUB ov_show
 END
 
 vp_untrack: PROCEDURE
@@ -155,6 +202,7 @@ vp_toggle: PROCEDURE
         BORDER BORDER_FOLLOW
         GOSUB vp_follow
     END IF
+    GOSUB ov_show
 END
 
 ' vp_home: keypad 1-4 jump the window to a column band, ENTER recentres on the
@@ -164,4 +212,5 @@ vp_band: PROCEDURE
     vx = vp_i * VCOLS
     IF vx > VXMAX THEN vx = VXMAX
     vp_full = 1
+    GOSUB ov_show
 END

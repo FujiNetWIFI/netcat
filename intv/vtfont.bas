@@ -15,9 +15,9 @@
 ' itself, and nothing has to be redesigned to match.
 '
 '   GRAM 0-30   ASCII 96-126  -- backtick, a-z, { | } ~
-'   GRAM 31-42  reserved for DEC special graphics (box drawing)
 '   GRAM 43     solid block -- the terminal cursor MOB and the grid edit cursor
-'   GRAM 44-63  spare
+'   GRAM 44-57  DEC special graphics: box drawing, for ESC ( 0
+'   GRAM 58-63  spare
 '
 ' GROM card 95 is a solid block already, but it is card 95: out of reach in
 ' FG/BG mode. Hence GRAM 43.
@@ -43,7 +43,7 @@ bg_scatter:
     DIM #cw_w, #cw_bgw
 
     CONST GRAM_BLOCK  = 43      ' solid block
-    CONST GRAM_DEC0   = 31      ' first DEC special-graphics card
+    CONST GRAM_DEC0   = 44      ' first DEC special-graphics card
     CONST CARD_GRAM   = 2048    ' word bit 11: card comes from GRAM
 
 ' ---------------------------------------------------------------------------
@@ -62,7 +62,13 @@ bg_scatter:
 ' nothing.
 ' ---------------------------------------------------------------------------
 cell_word: PROCEDURE
-    IF cw_c < 96 THEN
+    IF cw_c > 127 THEN
+        ' A DEC special-graphics glyph. vtansi.bas translates the ASCII the
+        ' far end sends into 128+n when the G0/G1 charset selects line
+        ' drawing, because 128+ is unreachable any other way -- the terminal
+        ' drops everything above 126 on the floor.
+        #cw_w = (cw_c - 128 + GRAM_DEC0) * 8 + CARD_GRAM
+    ELSEIF cw_c < 96 THEN
         #cw_w = (cw_c - 32) * 8                 ' GROM card 0-63
     ELSE
         #cw_w = (cw_c - 96) * 8 + CARD_GRAM     ' GRAM card 0-30
@@ -84,6 +90,8 @@ font_load: PROCEDURE
     DEFINE 16, 15, glyph_lower2
     WAIT
     DEFINE GRAM_BLOCK, 1, glyph_block
+    WAIT
+    DEFINE GRAM_DEC0, 14, glyph_dec
     WAIT
 END
 
@@ -380,3 +388,131 @@ glyph_block:
     BITMAP "XXXXXXXX"
     BITMAP "XXXXXXXX"
     BITMAP "XXXXXXXX"
+
+glyph_dec:
+    ' GRAM 44 -- DEC graphics '`', diamond
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "....X..."
+    BITMAP "...X.X.."
+    BITMAP "..X...X."
+    BITMAP "...X.X.."
+    BITMAP "....X..."
+    BITMAP "........"
+    ' GRAM 45 -- DEC graphics 'a', checkerboard
+    BITMAP ".X.X.X.X"
+    BITMAP "X.X.X.X."
+    BITMAP ".X.X.X.X"
+    BITMAP "X.X.X.X."
+    BITMAP ".X.X.X.X"
+    BITMAP "X.X.X.X."
+    BITMAP ".X.X.X.X"
+    BITMAP "X.X.X.X."
+    ' GRAM 46 -- DEC graphics 'j', lower right corner
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "XXXXX..."
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    ' GRAM 47 -- DEC graphics 'k', upper right corner
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "XXXXX..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    ' GRAM 48 -- DEC graphics 'l', upper left corner
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "....XXXX"
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    ' GRAM 49 -- DEC graphics 'm', lower left corner
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....XXXX"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    ' GRAM 50 -- DEC graphics 'n', cross
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "XXXXXXXX"
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    ' GRAM 51 -- DEC graphics 'q', horizontal
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "XXXXXXXX"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    ' GRAM 52 -- DEC graphics 't', left tee
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....XXXX"
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    ' GRAM 53 -- DEC graphics 'u', right tee
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "XXXXX..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    ' GRAM 54 -- DEC graphics 'v', bottom tee
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "XXXXXXXX"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    ' GRAM 55 -- DEC graphics 'w', top tee
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "XXXXXXXX"
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    ' GRAM 56 -- DEC graphics 'x', vertical
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    BITMAP "....X..."
+    ' GRAM 57 -- DEC graphics '~', centre dot
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "...XX..."
+    BITMAP "...XX..."
+    BITMAP "........"
+    BITMAP "........"
+    BITMAP "........"

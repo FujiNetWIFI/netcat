@@ -36,6 +36,7 @@
 
     INCLUDE "fujinet.bas"
     INCLUDE "ecskbd.bas"
+    INCLUDE "vtfont.bas"
     INCLUDE "kbd.bas"
 
     ' IntyBASIC allows exactly one of these, so both per-frame jobs -- the ECS
@@ -56,7 +57,6 @@
     CONST CUR_MOB_X0  = 8
     CONST CUR_MOB_Y0  = 8
     CONST CUR_MOB     = 0       ' nothing else in this program uses a MOB
-    CONST GRAM_CURSOR = 0       ' nor GRAM: the block below is the only card
     CONST CUR_BLINK   = 16      ' frames lit, then dark: a ~0.53 s cycle
 
     ' Scratch RAM, ours, above fujinet.bas's buffers (which end at $917F).
@@ -70,21 +70,14 @@ lit_spec:
     DATA 46,67,79,77,58,52,50,52,50,47
     CONST LEN_SPEC = 24
 
-' The cursor block. GROM has no solid card, so this is the one GRAM card the
-' program defines; main loads it with DEFINE before anything can show it.
-cursor_glyph:
-    BITMAP "XXXXXXXX"
-    BITMAP "XXXXXXXX"
-    BITMAP "XXXXXXXX"
-    BITMAP "XXXXXXXX"
-    BITMAP "XXXXXXXX"
-    BITMAP "XXXXXXXX"
-    BITMAP "XXXXXXXX"
-    BITMAP "XXXXXXXX"
-
     DIM term_pos, nc_i, nc_c, nc_cr, nc_row, tc_i, ts_fin
     DIM cur_on, cur_last, cur_lit
     DIM #cur_x, #cur_y
+
+    ' The terminal's current attribute. Only the foreground moves for now;
+    ' the background is black until SGR lands. (cell_word's own arguments are
+    ' DIMmed in vtfont.bas, which has to declare them ahead of its first use.)
+    DIM term_fg
 
 ' ---------------------------------------------------------------------------
 ' term_clear_row: blank the terminal row term_pos sits in, screen and
@@ -96,8 +89,9 @@ cursor_glyph:
 ' ---------------------------------------------------------------------------
 term_clear_row: PROCEDURE
     nc_row = (term_pos / 20) * 20
+    cw_c = 32 : cw_fg = term_fg : GOSUB cell_word
     FOR tc_i = 0 TO 19
-        #BACKTAB(nc_row + tc_i) = CS_BLACK
+        #BACKTAB(nc_row + tc_i) = #cw_w
         POKE (SC_TERM + nc_row + tc_i), 32
     NEXT tc_i
 END
@@ -118,7 +112,8 @@ term_putc: PROCEDURE
     END IF
     nc_cr = 0
     IF nc_c < 32 OR nc_c > 126 THEN RETURN
-    #BACKTAB(term_pos) = (nc_c - 32) * 8 + COL_NORMAL
+    cw_c = nc_c : cw_fg = term_fg : GOSUB cell_word
+    #BACKTAB(term_pos) = #cw_w
     POKE (SC_TERM + term_pos), nc_c
     term_pos = term_pos + 1
     IF term_pos >= TERM_CELLS THEN term_pos = 0
@@ -147,7 +142,8 @@ term_repaint: PROCEDURE
     FOR nc_i = 0 TO TERM_CELLS - 1
         nc_c = PEEK(SC_TERM + nc_i) AND 255
         IF nc_c < 32 OR nc_c > 126 THEN nc_c = 32
-        #BACKTAB(nc_i) = (nc_c - 32) * 8 + COL_NORMAL
+        cw_c = nc_c : cw_fg = term_fg : GOSUB cell_word
+        #BACKTAB(nc_i) = #cw_w
     NEXT nc_i
 END
 
@@ -206,7 +202,7 @@ cur_tick: PROCEDURE
     IF (FRAME AND CUR_BLINK) = 0 THEN
         IF cur_lit <> 1 THEN
             cur_lit = 1
-            SPRITE CUR_MOB, #cur_x, #cur_y, (256 + GRAM_CURSOR) * 8 + CS_BLUE
+            SPRITE CUR_MOB, #cur_x, #cur_y, (256 + GRAM_BLOCK) * 8 + CS_BLUE
         END IF
     ELSE
         IF cur_lit <> 0 THEN
@@ -347,9 +343,15 @@ compose_line: PROCEDURE
 END
 
 main:
-    MODE 0, 0, 0, 0, 0 : WAIT
-    DEFINE GRAM_CURSOR, 1, cursor_glyph
-    WAIT                        ' GRAM is loaded by the next frame's interrupt
+    ' Foreground/Background mode, for the whole program and for good: it is the
+    ' only STIC mode with a per-cell background, and every screen here now
+    ' composes its cards through cell_word, which speaks it. The cost is that
+    ' cards are limited to GROM 0-63 and GRAM 0-63, which is why vtfont.bas
+    ' exists -- and why every PRINT string in this program is UPPERCASE.
+    MODE 1 : WAIT
+    term_fg = COL_NORMAL
+    #cw_bgw = bg_scatter(CS_BLACK)
+    GOSUB font_load
     GOSUB ecs_init
     CLS
     PRINT AT 0 COLOR COL_NORMAL, "FUJINET NETCAT"

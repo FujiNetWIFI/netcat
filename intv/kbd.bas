@@ -222,7 +222,8 @@ grid_draw_charset: PROCEDURE
         FOR g_x = 0 TO GRID_COLS - 1
             g_ch = 32 + g_y * GRID_COLS + g_x
             IF g_ch > 126 THEN g_ch = 32
-            #BACKTAB((GRID_ROW0 + g_y) * SCREEN_COLS + GRID_COL0 + g_x) = (g_ch - 32) * 8 + COL_VALUE
+            cw_c = g_ch : cw_fg = COL_VALUE : GOSUB cell_word
+            #BACKTAB((GRID_ROW0 + g_y) * SCREEN_COLS + GRID_COL0 + g_x) = #cw_w
         NEXT g_x
     NEXT g_y
 END
@@ -257,7 +258,8 @@ grid_draw_cursor: PROCEDURE
         ELSE
             g_ch = 32 + g_py * GRID_COLS + g_px
             IF g_ch > 126 THEN g_ch = 32
-            #BACKTAB((GRID_ROW0 + g_py) * SCREEN_COLS + GRID_COL0 + g_px) = (g_ch - 32) * 8 + COL_VALUE
+            cw_c = g_ch : cw_fg = COL_VALUE : GOSUB cell_word
+            #BACKTAB((GRID_ROW0 + g_py) * SCREEN_COLS + GRID_COL0 + g_px) = #cw_w
         END IF
     END IF
 
@@ -268,7 +270,8 @@ grid_draw_cursor: PROCEDURE
     ELSE
         g_ch = 32 + g_y * GRID_COLS + g_x
         IF g_ch > 126 THEN g_ch = 32
-        #BACKTAB((GRID_ROW0 + g_y) * SCREEN_COLS + GRID_COL0 + g_x) = (g_ch - 32) * 8 + COL_HILIGHT
+        cw_c = g_ch : cw_fg = COL_HILIGHT : GOSUB cell_word
+        #BACKTAB((GRID_ROW0 + g_y) * SCREEN_COLS + GRID_COL0 + g_x) = #cw_w
     END IF
 
     g_px = g_x : g_py = g_y
@@ -293,10 +296,14 @@ grid_draw_value: PROCEDURE
         k_c = 32
         IF k_i + k_col < g_len THEN k_c = PEEK(#ge_dst + k_i + k_col) AND 255
         IF k_c < 32 OR k_c > 126 THEN k_c = 32
-        #BACKTAB(VAL_ROW0 * SCREEN_COLS + k_col) = (k_c - 32) * 8 + COL_VALUE
+        cw_c = k_c : cw_fg = COL_VALUE : GOSUB cell_word
+        #BACKTAB(VAL_ROW0 * SCREEN_COLS + k_col) = #cw_w
     NEXT k_col
     IF g_len - k_i < VAL_CELLS THEN
-        #BACKTAB(VAL_ROW0 * SCREEN_COLS + (g_len - k_i)) = (95 - 32) * 8 + COL_CURSOR
+        ' The edit cursor. It used to be GROM card 63 -- ASCII 95, which is a
+        ' left-arrow glyph in this font, not an underscore. GRAM's solid block
+        ' is both a truer caret and the only solid card FG/BG mode can reach.
+        #BACKTAB(VAL_ROW0 * SCREEN_COLS + (g_len - k_i)) = (256 + GRAM_BLOCK) * 8 + COL_CURSOR
     END IF
 END
 

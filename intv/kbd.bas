@@ -10,6 +10,13 @@
 ' paging. A row of action buttons (SPC/DEL/OK/ESC) sits below the grid.
 ' The keypad works too: 0 = space, CLEAR = backspace, ENTER = accept.
 '
+' When an ECS keyboard is present (see ecskbd.bas) grid_entry also accepts
+' real typing: printable keys append, RTN accepts, ESC cancels, and left-arrow
+' or CTL+H backspaces -- the ECS has no dedicated backspace key. The disc,
+' button and keypad paths are untouched, so the grid still works exactly as
+' before with or without a keyboard, and both callers (the URL screen and the
+' line composer) get typing for free because they share this routine.
+'
 ' grid_entry contract (same as fujinet-config's): caller sets #ge_dst
 ' (destination buffer) and #g_max (its size, including the NUL) BEFORE
 ' calling, and primes the buffer -- NUL at offset 0 for a fresh field, or
@@ -155,6 +162,20 @@ grid_entry: PROCEDURE
         WAIT
         GOSUB grid_draw_cursor
         GOSUB in_poll
+
+        GOSUB ecs_getkey
+        IF ecs_k <> ECS_NONE THEN
+            IF ecs_k = ECS_ENTER THEN
+                fn_ok = 1
+                EXIT DO
+            END IF
+            IF ecs_k = ECS_ESC THEN
+                fn_ok = 0
+                EXIT DO
+            END IF
+            IF ecs_k = 8 OR ecs_k = ECS_LEFT THEN GOSUB grid_backspace
+            IF ecs_k >= 32 AND ecs_k <= 126 THEN g_ch = ecs_k : GOSUB grid_append
+        END IF
 
         IF in_disc = DISC_UP AND g_y > 0 THEN g_y = g_y - 1
         IF in_disc = DISC_DOWN AND g_y < GRID_ROWS THEN g_y = g_y + 1

@@ -17,6 +17,17 @@
 '                                    (OK sends + CR LF, ESC cancels)
 '              keypad CLEAR          hang up, back to the URL screen
 '
+' With an ECS keyboard attached (detected at boot, see ecskbd.bas) the
+' terminal stops being line-mode: keys are sent as you type, RTN sends CR LF,
+' the arrows send ANSI cursor sequences and CTL+key sends control codes. The
+' keyboard also types directly into the character grid on both the URL screen
+' and the composer, so the disc never has to walk. Without an ECS none of that
+' exists and the program behaves exactly as described above.
+'
+' A blue block cursor blinks at the terminal's write position, drawn with a
+' MOB (hardware sprite) rather than a BACKTAB cell so it costs the receive
+' path nothing and never has to be erased out of the character shadow.
+'
 ' While the keyboard is open the connection is not polled; incoming bytes
 ' simply wait on the FujiNet and are drained when the terminal returns.
 '
@@ -24,10 +35,29 @@
     GOTO main
 
     INCLUDE "fujinet.bas"
+    INCLUDE "ecskbd.bas"
     INCLUDE "kbd.bas"
+
+    ' IntyBASIC allows exactly one of these, so both per-frame jobs -- the ECS
+    ' keyboard scan and the cursor blink -- hang off frame_tick.
+    ON FRAME GOSUB frame_tick
 
     CONST TERM_CELLS = 200      ' rows 0-9 are the terminal
     CONST STATUS_ROW = 220      ' row 11: status + key hints
+
+    ' MOB (sprite) register bits, and the pixel offset from background card
+    ' (0,0) to MOB coordinates. Both axes are offset by 8 -- MOB (8,8) is the
+    ' top-left card. That was measured against the emulator for the FujiNet
+    ' CONFIG port (see its constants.bas); don't try to infer it from the
+    ' IntyBASIC manual's X 0-168 / Y 0-95 ranges, which imply an asymmetry
+    ' that isn't there.
+    CONST SPR_VISIBLE = $0200   ' X reg bit 9
+    CONST SPR_ZOOMY2  = $0100   ' Y reg bit 8: scale 01 = one card-pixel tall
+    CONST CUR_MOB_X0  = 8
+    CONST CUR_MOB_Y0  = 8
+    CONST CUR_MOB     = 0       ' nothing else in this program uses a MOB
+    CONST GRAM_CURSOR = 0       ' nor GRAM: the block below is the only card
+    CONST CUR_BLINK   = 16      ' frames lit, then dark: a ~0.53 s cycle
 
     ' Scratch RAM, ours, above fujinet.bas's buffers (which end at $917F).
     CONST SC_URL  = $9200       ' devicespec, 256 bytes (255 chars + NUL)
@@ -40,7 +70,21 @@ lit_spec:
     DATA 46,67,79,77,58,52,50,52,50,47
     CONST LEN_SPEC = 24
 
-    DIM term_pos, nc_i, nc_c, nc_cr, nc_row, tc_i
+' The cursor block. GROM has no solid card, so this is the one GRAM card the
+' program defines; main loads it with DEFINE before anything can show it.
+cursor_glyph:
+    BITMAP "XXXXXXXX"
+    BITMAP "XXXXXXXX"
+    BITMAP "XXXXXXXX"
+    BITMAP "XXXXXXXX"
+    BITMAP "XXXXXXXX"
+    BITMAP "XXXXXXXX"
+    BITMAP "XXXXXXXX"
+    BITMAP "XXXXXXXX"
+
+    DIM term_pos, nc_i, nc_c, nc_cr, nc_row, tc_i, ts_fin
+    DIM cur_on, cur_last, cur_lit
+    DIM #cur_x, #cur_y
 
 ' ---------------------------------------------------------------------------
 ' term_clear_row: blank the terminal row term_pos sits in, screen and
@@ -108,6 +152,130 @@ term_repaint: PROCEDURE
 END
 
 ' ---------------------------------------------------------------------------
+' frame_tick: the one ON FRAME hook (IntyBASIC permits a single declaration).
+' It runs inside the video interrupt, so everything it calls must be short --
+' overrun a frame and the interrupts pile up until the stack overflows. It can
+' also fire before main has initialised anything, which is safe because every
+' variable is zero at boot and both callees bail on their zeroed enable flag.
+' ---------------------------------------------------------------------------
+frame_tick: PROCEDURE
+    GOSUB ecs_tick
+    GOSUB cur_tick
+END
+
+' ---------------------------------------------------------------------------
+' The terminal's blinking block cursor, MOB 0.
+'
+' A MOB rather than a BACKTAB cell because the cursor sits exactly where the
+' next received byte will be drawn: as a character cell it would have to be
+' erased before every term_putc and repainted after, and it would have to be
+' kept out of the SC_TERM shadow so term_repaint didn't make it permanent. A
+' sprite floats over all of that, and the receive path stays untouched.
+'
+' cur_show / cur_hide bracket the terminal. Hiding matters -- a MOB left
+' enabled keeps drawing over whatever screen comes next.
+' ---------------------------------------------------------------------------
+cur_show: PROCEDURE
+    cur_on = 1
+    cur_last = 255              ' impossible term_pos: forces a recompute
+    cur_lit = 2                 ' neither lit nor dark: forces a re-issue
+END
+
+cur_hide: PROCEDURE
+    cur_on = 0
+    cur_lit = 0
+    SPRITE CUR_MOB, 0, 0, 0
+END
+
+' cur_tick: called once per frame from frame_tick.
+cur_tick: PROCEDURE
+    IF cur_on = 0 THEN RETURN
+
+    ' Recompute the MOB coordinates only when the cursor actually moved. The
+    ' / and % below are real division calls, not shifts, and this runs in the
+    ' interrupt -- the common frame is "nothing moved" and costs one compare.
+    IF term_pos <> cur_last THEN
+        cur_last = term_pos
+        #cur_x = SPR_VISIBLE + CUR_MOB_X0 + (term_pos % 20) * 8
+        #cur_y = SPR_ZOOMY2 + CUR_MOB_Y0 + (term_pos / 20) * 8
+        cur_lit = 2
+    END IF
+
+    ' The MOB registers are shadowed in RAM and blitted by the ISR every frame,
+    ' so a single write persists -- only touch them when the phase flips.
+    IF (FRAME AND CUR_BLINK) = 0 THEN
+        IF cur_lit <> 1 THEN
+            cur_lit = 1
+            SPRITE CUR_MOB, #cur_x, #cur_y, (256 + GRAM_CURSOR) * 8 + CS_BLUE
+        END IF
+    ELSE
+        IF cur_lit <> 0 THEN
+            cur_lit = 0
+            SPRITE CUR_MOB, 0, 0, 0
+        END IF
+    END IF
+END
+
+' ---------------------------------------------------------------------------
+' term_hint: the row-11 key legend for the terminal. Two versions, because
+' with a keyboard the action button is no longer how you say anything.
+' ---------------------------------------------------------------------------
+term_hint: PROCEDURE
+    IF ecs_present THEN
+        PRINT AT STATUS_ROW COLOR COL_DIM, "TYPE - CLR HANGS UP "
+    ELSE
+        PRINT AT STATUS_ROW COLOR COL_DIM, "BTN TYPE - CLR URL  "
+    END IF
+END
+
+' ---------------------------------------------------------------------------
+' term_send_keys: drain everything the ECS keyboard has queued since the last
+' pass and send it as ONE write.
+'
+' Coalescing is the point. net_write is a full mailbox round trip, so sending
+' a transaction per keystroke would peg typing to the round-trip rate; draining
+' the whole queue into FN_TX first costs one transaction no matter how many
+' keys arrived, and the queue is a ring in ecskbd.bas that the frame interrupt
+' has been filling while this loop was blocked in net_status.
+'
+' Translation: RTN -> CR LF (what compose_line already appends to a line), the
+' four arrows -> ANSI CSI, and everything else -- printable ASCII, ESC, and the
+' control codes CTL+key produces -- straight through as one byte. The 60-byte
+' ceiling leaves room for a 3-byte sequence inside the TX window and simply
+' defers the rest to the next pass, one frame later.
+' ---------------------------------------------------------------------------
+term_send_keys: PROCEDURE
+    IF ecs_present = 0 THEN RETURN
+    #fn_txlen = 0
+    GOSUB ecs_getkey
+    DO WHILE ecs_k <> ECS_NONE
+        IF ecs_k = ECS_ENTER THEN
+            POKE (FN_TX + #fn_txlen), 13
+            POKE (FN_TX + #fn_txlen + 1), 10
+            #fn_txlen = #fn_txlen + 2
+        ELSEIF ecs_k >= ECS_LEFT AND ecs_k <= ECS_DOWN THEN
+            ts_fin = 68                     ' LEFT
+            IF ecs_k = ECS_RIGHT THEN ts_fin = 67
+            IF ecs_k = ECS_UP THEN ts_fin = 65
+            IF ecs_k = ECS_DOWN THEN ts_fin = 66
+            POKE (FN_TX + #fn_txlen), 27
+            POKE (FN_TX + #fn_txlen + 1), 91
+            POKE (FN_TX + #fn_txlen + 2), ts_fin
+            #fn_txlen = #fn_txlen + 3
+        ELSE
+            POKE (FN_TX + #fn_txlen), ecs_k
+            #fn_txlen = #fn_txlen + 1
+        END IF
+        IF #fn_txlen > 60 THEN EXIT DO
+        GOSUB ecs_getkey
+    LOOP
+    IF #fn_txlen > 0 THEN
+        fn_len = #fn_txlen
+        GOSUB net_write
+    END IF
+END
+
+' ---------------------------------------------------------------------------
 ' seed_url: (re)load the default devicespec into SC_URL.
 ' ---------------------------------------------------------------------------
 seed_url: PROCEDURE
@@ -123,9 +291,14 @@ END
 ' restores the default and keeps editing (there is nothing to cancel to).
 ' ---------------------------------------------------------------------------
 url_screen: PROCEDURE
+    GOSUB cur_hide              ' the grid draws its own cursor
 us_again:
     CLS
-    PRINT AT STATUS_ROW COLOR COL_DIM, "TYPE URL - OK DIALS "
+    IF ecs_present THEN
+        PRINT AT STATUS_ROW COLOR COL_DIM, "TYPE URL - RTN DIALS"
+    ELSE
+        PRINT AT STATUS_ROW COLOR COL_DIM, "TYPE URL - OK DIALS "
+    END IF
     #ge_dst = SC_URL
     #g_max = 256
     GOSUB grid_entry
@@ -144,8 +317,14 @@ END
 ' line plus CR LF out the open channel. Restores the terminal afterward.
 ' ---------------------------------------------------------------------------
 compose_line: PROCEDURE
+    GOSUB cur_hide
     CLS
-    PRINT AT STATUS_ROW COLOR COL_DIM, "OK SENDS - ESC BACK "
+    IF ecs_present THEN
+        PRINT AT STATUS_ROW COLOR COL_DIM, "RTN SENDS - ESC BACK"
+    ELSE
+        PRINT AT STATUS_ROW COLOR COL_DIM, "OK SENDS - ESC BACK "
+    END IF
+    GOSUB ecs_flush             ' keys meant for the terminal were already sent
     POKE SC_LINE, 0             ' fresh line every time
     #ge_dst = SC_LINE
     #g_max = 253
@@ -162,11 +341,16 @@ compose_line: PROCEDURE
 
     CLS
     GOSUB term_repaint
-    PRINT AT STATUS_ROW COLOR COL_DIM, "BTN TYPE - CLR URL  "
+    GOSUB ecs_flush
+    GOSUB term_hint
+    GOSUB cur_show
 END
 
 main:
     MODE 0, 0, 0, 0, 0 : WAIT
+    DEFINE GRAM_CURSOR, 1, cursor_glyph
+    WAIT                        ' GRAM is loaded by the next frame's interrupt
+    GOSUB ecs_init
     CLS
     PRINT AT 0 COLOR COL_NORMAL, "FUJINET NETCAT"
     PRINT AT 40, "CONNECTING TO FUJINET"
@@ -205,7 +389,9 @@ con_wait:
     CLS
     GOSUB term_init
     GOSUB term_clear_row
-    PRINT AT STATUS_ROW COLOR COL_DIM, "BTN TYPE - CLR URL  "
+    GOSUB ecs_flush
+    GOSUB term_hint
+    GOSUB cur_show
 
 term_loop:
     WAIT
@@ -214,6 +400,7 @@ term_loop:
     GOSUB net_status
     IF fn_ok = 0 THEN
         PRINT AT STATUS_ROW COLOR COL_ERROR, "CONNECTION LOST     "
+        GOSUB cur_hide
 lost_wait:
         WAIT
         GOSUB in_poll
@@ -233,7 +420,9 @@ lost_wait:
         END IF
     END IF
 
-    ' --- input ---
+    ' --- input: ECS keys go straight out the wire (one write for the whole
+    ' pass); the controller still opens the composer and hangs up ---
+    GOSUB term_send_keys
     GOSUB in_poll
     IF in_btn THEN GOSUB compose_line
     IF in_key = KEYPAD_CLEAR THEN

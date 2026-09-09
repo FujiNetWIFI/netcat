@@ -14,7 +14,7 @@ AS1600    ?= as1600
 LIBDIR    ?= $(HOME)/Workspace/IntyBASIC/intybasic/
 
 PRODUCT = netcat
-SOURCES = netcat.bas fujinet.bas kbd.bas
+SOURCES = netcat.bas fujinet.bas kbd.bas ecskbd.bas ecskbd.asm
 
 .PHONY: all clean run
 

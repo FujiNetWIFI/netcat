@@ -7,8 +7,8 @@ per-cell colour, scrolling regions, line drawing and cursor addressing —
 shown through the console's 20×12 card window as a viewport that follows the
 cursor.
 
-The prefilled default is tcpbin.com's echo service (port 4242), so pressing
-`OK` untouched gives a self-test needing no server of your own.
+The prefilled default is `N:TELNET://BBS.FOZZTEXX.COM/`, so pressing `OK`
+untouched dials a public BBS and needs no server of your own.
 
 With an **ECS keyboard** attached you type on real keys and each keystroke
 goes straight out the wire. The ECS is detected at boot and is entirely

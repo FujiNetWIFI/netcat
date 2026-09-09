@@ -104,11 +104,11 @@ lit_query:
     DATA 108,115,61,56,48,38,114,111,119,115,61,50,53
     CONST LEN_QUERY = 27
 
-' The default devicespec: "N:SSH://intv:intv@TMA-3/"
+' The default devicespec: "N:TELNET://BBS.FOZZTEXX.COM/"
 lit_spec:
-    DATA 78,58,83,83,72,58,47,47,105,110,116,118,58,105
-    DATA 110,116,118,64,84,77,65,45,51,47
-    CONST LEN_SPEC = 24
+    DATA 78,58,84,69,76,78,69,84,58,47,47,66,66,83
+    DATA 46,70,79,90,90,84,69,88,88,46,67,79,77,47
+    CONST LEN_SPEC = 28
 
     DIM nc_i, nc_c, ts_fin
     DIM uq_i, uq_c, uq_len, uq_ok

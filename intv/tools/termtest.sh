@@ -21,12 +21,12 @@ mkdir -p "$WORK/lib" && cp lib/*.asm "$WORK/lib/"
 rm -f "$WORK/netcat.asm"
 
 python3 - "$WORK/netcat.bas" "$URL" <<'PY'
-import pathlib, sys
+import pathlib, re, sys
 path, url = sys.argv[1], sys.argv[2]
 p = pathlib.Path(path); s = p.read_text()
 i, j = s.index("lit_spec:"), s.index("CONST LEN_SPEC")
 s = s[:i] + "lit_spec:\n    DATA " + ",".join(str(ord(c)) for c in url) + "\n    " + s[j:]
-s = s.replace("CONST LEN_SPEC = 24", "CONST LEN_SPEC = %d" % len(url))
+s = re.sub(r"CONST LEN_SPEC = \d+", "CONST LEN_SPEC = %d" % len(url), s)
 s = s.replace("dial:\n    GOSUB url_screen", "dial:\n    ' url_screen skipped by tools/termtest.sh")
 p.write_text(s)
 PY

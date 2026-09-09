@@ -111,18 +111,46 @@ END
 ' still says which way the cursor went.
 ' ---------------------------------------------------------------------------
 vp_cursor: PROCEDURE
-    cur_col = vt_col - vx
-    cur_row = vt_row - vy
     cur_vis = 1
-    IF cur_col < 0 THEN cur_col = 0 : cur_vis = 0
-    IF cur_col > VCOLS - 1 THEN cur_col = VCOLS - 1 : cur_vis = 0
-    IF cur_row < 0 THEN cur_row = 0 : cur_vis = 0
-    IF cur_row > VROWS - 1 THEN cur_row = VROWS - 1 : cur_vis = 0
+
+    ' The subtractions are guarded rather than clamped afterwards: IntyBASIC's
+    ' 8-bit variables are unsigned, so "vt_col - vx" with the cursor off to the
+    ' left does not go negative, it wraps to something near 255. Testing for
+    ' that after the fact parks the cursor on the wrong edge.
+    IF vt_col < vx THEN
+        cur_col = 0
+        cur_vis = 0
+    ELSE
+        cur_col = vt_col - vx
+        IF cur_col > VCOLS - 1 THEN
+            cur_col = VCOLS - 1
+            cur_vis = 0
+        END IF
+    END IF
+    IF vt_row < vy THEN
+        cur_row = 0
+        cur_vis = 0
+    ELSE
+        cur_row = vt_row - vy
+        IF cur_row > VROWS - 1 THEN
+            cur_row = VROWS - 1
+            cur_vis = 0
+        END IF
+    END IF
+
     #cur_x = SPR_VISIBLE + CUR_MOB_X0 + cur_col * 8
     #cur_y = SPR_ZOOMY2 + CUR_MOB_Y0 + cur_row * 8
-    cur_col = CS_BLUE
-    IF cur_vis = 0 THEN cur_col = CS_RED
-    cur_attr = (256 + GRAM_BLOCK) * 8 + cur_col
+
+    ' Blue where the cursor really is, red when it has been parked on an edge
+    ' because the window was panned away from it.
+    cur_c = CS_BLUE
+    IF cur_vis = 0 THEN cur_c = CS_RED
+
+    ' The "#" matters and its absence is invisible: written as "cur_attr" this
+    ' declares a fresh 8-bit variable, leaves the 16-bit #cur_attr that
+    ' cur_tick reads at zero, and the cursor MOB is drawn with an attribute of
+    ' 0 -- card 0, colour 0 -- every frame. No cursor, no error, no warning.
+    #cur_attr = (256 + GRAM_BLOCK) * 8 + cur_c
     cur_lit = 2                         ' force the blink to re-issue
 END
 

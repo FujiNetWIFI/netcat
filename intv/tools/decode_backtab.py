@@ -61,7 +61,7 @@ def symbols(lst):
     # The symbol table prints as two columns of "ADDRESS  name" pairs.
     out = {}
     for line in open(lst, errors="replace"):
-        for addr, name in re.findall(r'([0-9A-F]{8})\s+var_([A-Z0-9_]+)\b', line):
+        for addr, name in re.findall(r'([0-9A-F]{8})\s+var_(&?[A-Z0-9_]+)\b', line):
             out[name] = int(addr, 16)
     return out
 
@@ -69,11 +69,24 @@ def dump_state(memfile, lst, rows=None):
     mem = pathlib.Path(memfile).read_bytes()
     w = struct.unpack(">%dH" % (len(mem) // 2), mem)
     sym = symbols(lst)
-    want = ["VX", "VY", "VP_TRACK", "VP_FULL", "VP_DTOP", "VP_DBOT",
+    want = ["CUR_ON", "CUR_LIT", "CUR_VIS", "&CUR_X", "&CUR_Y", "&CUR_ATTR",
+            "&NET_AVAIL", "&NET_ERR", "&MB_ERR", "NC_UP", "NC_BAD", "FN_OK",
+            "VX", "VY", "VP_TRACK", "VP_FULL", "VP_DTOP", "VP_DBOT",
             "VT_COL", "VT_ROW", "VT_PEND", "SR_TOP", "SR_BOT",
             "AN_STATE", "TERM_FG", "BLANK_LO", "BLANK_HI"]
-    print("   state:", "  ".join("%s=%d" % (n, w[sym[n]] & 0xFF)
+    def val(n):
+        v = w[sym[n]]
+        return v if n.startswith("&") else v & 0xFF
+    print("   state:", "  ".join("%s=%d" % (n.lstrip("&"), val(n))
                                  for n in want if n in sym))
+    if "&CUR_ATTR" in sym:
+        a, x, y = val("&CUR_ATTR"), val("&CUR_X"), val("&CUR_Y")
+        print("   cursor: card %d colour %d at col %d row %d %s"
+              % ((a >> 3) & 0x3F, a & 7, (x & 0xFF) // 8 - 1, (y & 0xFF) // 8 - 1,
+                 "shown" if val("CUR_ON") else "hidden"))
+    # MOB 0 is the terminal cursor: X at $0000, Y at $0008, attribute at $0010.
+    # X bit 9 is "visible"; the attribute is (256+card)*8 + colour, so a card
+    # of 0 means the sprite is being drawn as nothing at all.
     url = ""
     for i in range(256):
         c = w[0x9200 + i] & 0xFF
@@ -81,6 +94,8 @@ def dump_state(memfile, lst, rows=None):
             break
         url += chr(c) if 32 <= c < 127 else "."
     print("   SC_URL: %s" % url)
+    print("   NET STATUS reply at FN_RX: %s"
+          % " ".join("%02X" % (w[0x9D40 + i] & 0xFF) for i in range(4)))
     rowmap = [w[0x9440 + i] & 0xFF for i in range(25)]
     print("   rowmap:", " ".join("%d" % r for r in rowmap))
     print("   TBUF (logical rows, columns 0-79):")

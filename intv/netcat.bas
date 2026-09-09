@@ -48,6 +48,19 @@
     ' most of a fifth of a second of work with the keyboard ignored throughout.
     CONST TERM_READ  = 256
 
+    ' How many consecutive unhappy STATUS polls to tolerate before declaring
+    ' the connection dead. It cannot be zero. OPEN returns as soon as the
+    ' request is accepted, not when the far end is reachable, so the first
+    ' STATUS after it routinely reports "not connected" -- for TCP that is a
+    ' race measured in milliseconds, but SSH has a TCP connect, a protocol
+    ' handshake and an authentication to get through first. Treating that
+    ' first answer as fatal hung up on every ssh session before it started.
+    '
+    ' Patient while dialling, brisk once the session is up: waiting four
+    ' minutes to notice a shell that has exited is not patience.
+    CONST TERM_GRACE = 240
+    CONST TERM_DROP  = 16
+
     CONST STATUS_ROW = 220      ' row 11, used only by the screens that
                                 ' are not the terminal -- the terminal itself
                                 ' now owns all twelve rows.
@@ -91,16 +104,17 @@ lit_query:
     DATA 108,115,61,56,48,38,114,111,119,115,61,50,53
     CONST LEN_QUERY = 27
 
-' The default devicespec (24 bytes): "N:TCP://TCPBIN.COM:4242/"
+' The default devicespec: "N:SSH://intv:intv@TMA-3/"
 lit_spec:
-    DATA 78,58,84,67,80,58,47,47,84,67,80,66,73,78
-    DATA 46,67,79,77,58,52,50,52,50,47
+    DATA 78,58,83,83,72,58,47,47,105,110,116,118,58,105
+    DATA 110,116,118,64,84,77,65,45,51,47
     CONST LEN_SPEC = 24
 
     DIM nc_i, nc_c, ts_fin
     DIM uq_i, uq_c, uq_len, uq_ok
+    DIM nc_up, nc_bad, nc_lim
     DIM #an_a, #an_b
-    DIM cur_on, cur_lit, cur_col, cur_row
+    DIM cur_on, cur_lit, cur_col, cur_row, cur_c
     DIM #cur_attr
     DIM #cur_x, #cur_y
 
@@ -429,6 +443,15 @@ dial:
     GOSUB url_wantsz
     CLS
     PRINT AT 0 COLOR COL_NORMAL, "DIALING..."
+
+    ' Close first. The unit may still be open from a previous session: this
+    ' program does not get to run its own shutdown when the console is reset
+    ' or the emulator is killed, and the FujiNet keeps the unit either way --
+    ' the same persistence that makes fn_transact derive its sequence number
+    ' from the cartridge's ACKSEQ rather than a local counter. A CLOSE with
+    ' nothing open is harmless; an OPEN onto a stale unit never connects.
+    GOSUB net_close
+
     #fn_txlen = 0
     #fn_src = SC_URL : ls_max = 255 : GOSUB fn_strlen : GOSUB fn_putstr
     mb_dev = NET_DEVICEID
@@ -448,14 +471,16 @@ con_wait:
     END IF
 
     CLS
+    PRINT AT 0 COLOR COL_NORMAL, "CONNECTING..."
     GOSUB an_sgr_reset
     GOSUB vt_reset
     GOSUB vp_reset
     an_awm = 1
     an_ckm = 0
     an_rlen = 0
+    nc_up = 0
+    nc_bad = 0
     GOSUB ecs_flush
-    GOSUB cur_show
 
 term_loop:
     WAIT
@@ -467,16 +492,43 @@ term_loop:
 
     ' --- receive: anything waiting? read a chunk and feed it to the terminal
     GOSUB net_status
-    IF fn_ok = 0 THEN
-        PRINT AT STATUS_ROW COLOR COL_ERROR, "CONNECTION LOST     "
-        GOSUB cur_hide
-lost_wait:
-        WAIT
-        GOSUB in_poll
-        IF in_btn = 0 THEN GOTO lost_wait
-        GOSUB net_close            ' free the unit regardless
-        GOTO dial
+    IF fn_ok THEN
+        nc_bad = 0
+    ELSE
+        nc_bad = nc_bad + 1
     END IF
+
+    ' Take the "CONNECTING..." notice down on either a healthy link or bytes
+    ' to show. Both, because a connection that has already closed can still
+    ' have a screenful waiting: an unhappy STATUS is not a reason to throw
+    ' away what the far end managed to say before it went.
+    IF nc_up = 0 THEN
+        IF fn_ok THEN GOTO nc_isup
+        IF #net_avail = 0 THEN GOTO nc_notup
+nc_isup:
+        nc_up = 1
+        CLS
+        GOSUB vp_dirty_all
+        GOSUB cur_show
+nc_notup:
+    END IF
+
+    ' Give up slowly while dialling and quickly once the session has been up.
+    nc_lim = TERM_GRACE
+    IF nc_up THEN nc_lim = TERM_DROP
+    IF nc_bad >= nc_lim THEN
+        IF #net_avail = 0 THEN
+            PRINT AT STATUS_ROW COLOR COL_ERROR, "CONNECTION LOST     "
+            GOSUB cur_hide
+lost_wait:
+            WAIT
+            GOSUB in_poll
+            IF in_btn = 0 THEN GOTO lost_wait
+            GOSUB net_close        ' free the unit regardless
+            GOTO dial
+        END IF
+    END IF
+
     IF #net_avail > 0 THEN
         #net_readlen = #net_avail
         IF #net_readlen > TERM_READ THEN #net_readlen = TERM_READ
@@ -505,9 +557,11 @@ lost_wait:
     ' --- and only now put it on the screen. Painting once per pass rather
     ' than once per character is what makes a 20x12 window onto an 80x25
     ' buffer affordable: a chunk of 256 bytes costs one repaint, not 256.
-    GOSUB vp_follow
-    GOSUB vp_paint
-    GOSUB vp_cursor
+    IF nc_up THEN
+        GOSUB vp_follow
+        GOSUB vp_paint
+        GOSUB vp_cursor
+    END IF
     GOTO term_loop
 
 halt:

@@ -58,7 +58,8 @@ erase (`ED EL ECH`), insert and delete (`IL DL ICH DCH`), scrolling (`SU SD`)
 and scrolling regions (`DECSTBM`), save/restore (`DECSC DECRC`), autowrap
 (`DECAWM`, with correct deferred wrap at column 80), cursor visibility
 (`DECTCEM`), application cursor keys (`DECCKM`), DEC special graphics
-(`ESC ( 0`, `SO`/`SI`), OSC strings (swallowed), and `SGR` including
+(`ESC ( 0`, `SO`/`SI`), string sequences (`OSC` `DCS` `SOS` `PM` `APC`,
+swallowed to their terminator however long they run), and `SGR` including
 `38;5;n`/`48;5;n` folded down to the sixteen. `DSR` and `DA` are answered,
 because a program that asks blocks until they are.
 

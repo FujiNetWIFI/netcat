@@ -2,7 +2,7 @@
 '
 ' Replaces the swallower in vt.bas. The states are the ones every VT parser
 ' has: GROUND, just-seen-ESC, collecting CSI parameters, ignoring a CSI that
-' has gone wrong, inside an OSC string, and designating a character set.
+' has gone wrong, inside a string sequence, and designating a character set.
 '
 ' What is implemented is what a shell session actually uses: cursor motion and
 ' absolute addressing, erase, insert and delete of lines and characters,
@@ -21,7 +21,7 @@
     CONST AN_ESC     = 1
     CONST AN_CSI     = 2
     CONST AN_IGNORE  = 3
-    CONST AN_OSC     = 4
+    CONST AN_STR     = 4
     CONST AN_CHARSET = 5
 
     CONST AN_MAXPAR  = 8
@@ -180,7 +180,7 @@ an_feed: PROCEDURE
     IF an_state = AN_GROUND THEN GOSUB an_ground : RETURN
     IF an_state = AN_CSI THEN GOSUB an_csi : RETURN
     IF an_state = AN_ESC THEN GOSUB an_esc : RETURN
-    IF an_state = AN_OSC THEN GOSUB an_osc : RETURN
+    IF an_state = AN_STR THEN GOSUB an_str : RETURN
     IF an_state = AN_CHARSET THEN GOSUB an_charset : RETURN
     ' AN_IGNORE: run to the final byte and drop the whole sequence
     IF nc_c < 64 THEN RETURN
@@ -246,7 +246,7 @@ an_esc: PROCEDURE
         NEXT an_i
         RETURN
     END IF
-    IF nc_c = 93 THEN an_state = AN_OSC : an_n = 0 : RETURN   ' ]
+    IF nc_c = 93 THEN an_state = AN_STR : RETURN              ' ]  OSC
     IF nc_c = 40 THEN an_state = AN_CHARSET : an_csw = 0 : RETURN   ' (  G0
     IF nc_c = 41 THEN an_state = AN_CHARSET : an_csw = 1 : RETURN   ' )  G1
     IF nc_c = 35 THEN an_state = AN_CHARSET : an_csw = 2 : RETURN   ' #
@@ -256,6 +256,16 @@ an_esc: PROCEDURE
     IF nc_c = 55 THEN GOSUB an_decsc : RETURN                 ' 7
     IF nc_c = 56 THEN GOSUB an_decrc : RETURN                 ' 8
     IF nc_c = 99 THEN GOSUB an_ris : RETURN                   ' c  RIS
+    ' The other string introducers. Down here, not up with ], because a shell
+    ' session sends none of them in a normal minute while ESC ( fires on entry
+    ' to every curses program. They are listed at all because an introducer
+    ' with no case falls through to GROUND, which prints the entire payload --
+    ' that is how ESC P used to spray a terminfo probe's reply across the
+    ' screen.
+    IF nc_c = 80 THEN an_state = AN_STR : RETURN              ' P  DCS
+    IF nc_c = 95 THEN an_state = AN_STR : RETURN              ' _  APC
+    IF nc_c = 94 THEN an_state = AN_STR : RETURN              ' ^  PM
+    IF nc_c = 88 THEN an_state = AN_STR : RETURN              ' X  SOS
     ' =, > and the rest: keypad modes and things with no screen effect
 END
 
@@ -291,12 +301,37 @@ an_ris: PROCEDURE
     GOSUB vp_dirty_all
 END
 
-' OSC: a window title or similar. Runs to BEL or to the ST that follows ESC.
-an_osc: PROCEDURE
-    an_n = an_n + 1
-    IF an_n >= 64 THEN an_state = AN_GROUND : RETURN
-    IF nc_c = 7 THEN an_state = AN_GROUND : RETURN
-    IF nc_c = 27 THEN an_state = AN_CHARSET   ' ST: eat the byte after ESC
+' ---------------------------------------------------------------------------
+' an_str: a string sequence -- the window title a PS1 sets, and the DCS, APC,
+' PM and SOS nothing here implements. The payload is discarded.
+'
+' There is deliberately no length ceiling, and the one that used to be here is
+' what put window titles on the screen. A ceiling cannot both bound a runaway
+' and stay quiet: bailing to GROUND mid-string does not drop the rest of the
+' string, it prints it, because GROUND is where printable text goes. Sixty-four
+' bytes therefore spilled the tail of every title with a deep working directory
+' in it, and did it only on the hosts and directories long enough to reach.
+'
+' What bounds a runaway instead is the terminator set. ESC ends the string --
+' it is the ST, and it is also the byte a corrupted stream resynchronises on --
+' and so does any other C0 control. A real title contains neither, so this
+' never fires in a healthy session; a stray ESC ] in a binary dump costs a line
+' rather than the rest of the session.
+'
+' Handing the ESC to AN_ESC rather than to AN_CHARSET is not a detail. Parking
+' in AN_CHARSET to eat the backslash meant an_charset ran with whatever an_csw
+' the last ESC ( or ESC ) had left, and reset G0 or G1 to ASCII -- so a title
+' update in the middle of a curses screen turned the box drawing back into
+' lqqk. AN_ESC matches nothing for a backslash, so the ST costs nothing; and a
+' string aborted by a fresh ESC [ now has its CSI parsed instead of eaten.
+'
+' Ordered by frequency, like an_ground: the payload is almost every byte, so
+' swallowing one costs a single compare.
+' ---------------------------------------------------------------------------
+an_str: PROCEDURE
+    IF nc_c >= 32 THEN RETURN                      ' the payload: swallowed
+    IF nc_c = 27 THEN an_state = AN_ESC : RETURN   ' ST, or a sequence aborting this one
+    an_state = AN_GROUND                           ' BEL ends it; CR and LF resync
 END
 
 ' ---------------------------------------------------------------------------

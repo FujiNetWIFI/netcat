@@ -20,7 +20,8 @@ AS1600    ?= as1600
 LIBDIR    ?= ./lib/
 
 PRODUCT = netcat
-SOURCES = netcat.bas fujinet.bas kbd.bas ecskbd.bas ecskbd.asm vtfont.bas \
+SOURCES = netcat.bas fujinet.bas kbd.bas ecskbd.bas ecskbd.asm \
+          vtfont.bas vt.bas vtview.bas vtasm.asm \
           lib/intybasic_prologue.asm lib/intybasic_epilogue.asm
 
 .PHONY: all clean run guard

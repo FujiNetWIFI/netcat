@@ -34,17 +34,23 @@
 ' Build:  intybasic netcat.bas netcat.asm && as1600 -o netcat netcat.asm
     GOTO main
 
-    INCLUDE "fujinet.bas"
-    INCLUDE "ecskbd.bas"
-    INCLUDE "vtfont.bas"
-    INCLUDE "kbd.bas"
-
+    ' Declarations come before the INCLUDEs, not after: IntyBASIC creates a
+    ' variable at its first use, so a name an include mentions is already
+    ' declared by the time a later DIM gets to it -- and that DIM is then an
+    ' error. Everything shared with vt.bas, vtview.bas and vtfont.bas lives
+    ' here, above them.
     ' IntyBASIC allows exactly one of these, so both per-frame jobs -- the ECS
     ' keyboard scan and the cursor blink -- hang off frame_tick.
     ON FRAME GOSUB frame_tick
 
-    CONST TERM_CELLS = 200      ' rows 0-9 are the terminal
-    CONST STATUS_ROW = 220      ' row 11: status + key hints
+    ' How much to pull out of the mailbox in one pass. The RX window holds
+    ' 512, but every byte has to walk the parser, so a full window would be
+    ' most of a fifth of a second of work with the keyboard ignored throughout.
+    CONST TERM_READ  = 256
+
+    CONST STATUS_ROW = 220      ' row 11, used only by the screens that
+                                ' are not the terminal -- the terminal itself
+                                ' now owns all twelve rows.
 
     ' MOB (sprite) register bits, and the pixel offset from background card
     ' (0,0) to MOB coordinates. Both axes are offset by 8 -- MOB (8,8) is the
@@ -62,7 +68,8 @@
     ' Scratch RAM, ours, above fujinet.bas's buffers (which end at $917F).
     CONST SC_URL  = $9200       ' devicespec, 256 bytes (255 chars + NUL)
     CONST SC_LINE = $9300       ' composed line, 253 bytes (252 + NUL)
-    CONST SC_TERM = $9400       ' 200-byte shadow of the terminal cells
+    ' $9400-$943F is the ECS key ring (ecskbd.bas) and $9440 the row map
+    ' (vt.bas); the 80x25 buffer has $8000-$8F9F.
 
 ' The default devicespec (24 bytes): "N:TCP://TCPBIN.COM:4242/"
 lit_spec:
@@ -70,8 +77,9 @@ lit_spec:
     DATA 46,67,79,77,58,52,50,52,50,47
     CONST LEN_SPEC = 24
 
-    DIM term_pos, nc_i, nc_c, nc_cr, nc_row, tc_i, ts_fin
-    DIM cur_on, cur_last, cur_lit
+    DIM nc_i, nc_c, ts_fin
+    DIM cur_on, cur_lit, cur_col, cur_row
+    DIM #cur_attr
     DIM #cur_x, #cur_y
 
     ' The terminal's current attribute. Only the foreground moves for now;
@@ -79,73 +87,13 @@ lit_spec:
     ' DIMmed in vtfont.bas, which has to declare them ahead of its first use.)
     DIM term_fg
 
-' ---------------------------------------------------------------------------
-' term_clear_row: blank the terminal row term_pos sits in, screen and
-' shadow both -- called on entering a fresh row so wrapped-around output
-' never interleaves with a stale line. Uses its own loop variable (tc_i):
-' it's called from term_putc/term_newline while those run inside the
-' receive loop's "FOR nc_i = 0 TO #net_gotlen - 1" in main -- reusing nc_i
-' here would clobber that outer loop's counter on every line break.
-' ---------------------------------------------------------------------------
-term_clear_row: PROCEDURE
-    nc_row = (term_pos / 20) * 20
-    cw_c = 32 : cw_fg = term_fg : GOSUB cell_word
-    FOR tc_i = 0 TO 19
-        #BACKTAB(nc_row + tc_i) = #cw_w
-        POKE (SC_TERM + nc_row + tc_i), 32
-    NEXT tc_i
-END
+    INCLUDE "fujinet.bas"
+    INCLUDE "ecskbd.bas"
+    INCLUDE "vtfont.bas"
+    INCLUDE "kbd.bas"
+    INCLUDE "vt.bas"
+    INCLUDE "vtview.bas"
 
-' ---------------------------------------------------------------------------
-' term_putc: draw ASCII nc_c at the terminal cursor, handling CR/LF and
-' wrap-around, mirroring every cell into SC_TERM so the display can be
-' repainted after the keyboard has been over it. GROM cards 0-94 cover
-' ASCII 32-126 directly.
-' ---------------------------------------------------------------------------
-term_putc: PROCEDURE
-    IF nc_c = 13 THEN nc_cr = 1 : GOSUB term_newline : RETURN
-    IF nc_c = 10 THEN
-        ' collapse the LF of a CR LF pair; a bare LF is a newline
-        IF nc_cr = 0 THEN GOSUB term_newline
-        nc_cr = 0
-        RETURN
-    END IF
-    nc_cr = 0
-    IF nc_c < 32 OR nc_c > 126 THEN RETURN
-    cw_c = nc_c : cw_fg = term_fg : GOSUB cell_word
-    #BACKTAB(term_pos) = #cw_w
-    POKE (SC_TERM + term_pos), nc_c
-    term_pos = term_pos + 1
-    IF term_pos >= TERM_CELLS THEN term_pos = 0
-    IF (term_pos % 20) = 0 THEN GOSUB term_clear_row
-END
-
-term_newline: PROCEDURE
-    term_pos = (term_pos / 20) * 20 + 20
-    IF term_pos >= TERM_CELLS THEN term_pos = 0
-    GOSUB term_clear_row
-END
-
-' ---------------------------------------------------------------------------
-' term_init / term_repaint: reset the pane, or redraw all 200 cells from
-' the shadow after the keyboard borrowed the screen.
-' ---------------------------------------------------------------------------
-term_init: PROCEDURE
-    term_pos = 0
-    nc_cr = 0
-    FOR nc_i = 0 TO TERM_CELLS - 1
-        POKE (SC_TERM + nc_i), 32
-    NEXT nc_i
-END
-
-term_repaint: PROCEDURE
-    FOR nc_i = 0 TO TERM_CELLS - 1
-        nc_c = PEEK(SC_TERM + nc_i) AND 255
-        IF nc_c < 32 OR nc_c > 126 THEN nc_c = 32
-        cw_c = nc_c : cw_fg = term_fg : GOSUB cell_word
-        #BACKTAB(nc_i) = #cw_w
-    NEXT nc_i
-END
 
 ' ---------------------------------------------------------------------------
 ' frame_tick: the one ON FRAME hook (IntyBASIC permits a single declaration).
@@ -164,16 +112,20 @@ END
 '
 ' A MOB rather than a BACKTAB cell because the cursor sits exactly where the
 ' next received byte will be drawn: as a character cell it would have to be
-' erased before every term_putc and repainted after, and it would have to be
-' kept out of the SC_TERM shadow so term_repaint didn't make it permanent. A
-' sprite floats over all of that, and the receive path stays untouched.
+' erased before every write and repainted after, and it would have to be kept
+' out of the buffer so a repaint did not make it permanent. A sprite floats
+' over all of that, and the receive path stays untouched.
+'
+' Where it goes is decided by vp_cursor, in the main loop. The interrupt used
+' to work that out itself, but recovering a row and column costs two divisions
+' and IntyBASIC compiles division into a subtract loop -- not something to run
+' inside a frame hook. All that is left here is the blink.
 '
 ' cur_show / cur_hide bracket the terminal. Hiding matters -- a MOB left
 ' enabled keeps drawing over whatever screen comes next.
 ' ---------------------------------------------------------------------------
 cur_show: PROCEDURE
     cur_on = 1
-    cur_last = 255              ' impossible term_pos: forces a recompute
     cur_lit = 2                 ' neither lit nor dark: forces a re-issue
 END
 
@@ -187,22 +139,12 @@ END
 cur_tick: PROCEDURE
     IF cur_on = 0 THEN RETURN
 
-    ' Recompute the MOB coordinates only when the cursor actually moved. The
-    ' / and % below are real division calls, not shifts, and this runs in the
-    ' interrupt -- the common frame is "nothing moved" and costs one compare.
-    IF term_pos <> cur_last THEN
-        cur_last = term_pos
-        #cur_x = SPR_VISIBLE + CUR_MOB_X0 + (term_pos % 20) * 8
-        #cur_y = SPR_ZOOMY2 + CUR_MOB_Y0 + (term_pos / 20) * 8
-        cur_lit = 2
-    END IF
-
     ' The MOB registers are shadowed in RAM and blitted by the ISR every frame,
     ' so a single write persists -- only touch them when the phase flips.
     IF (FRAME AND CUR_BLINK) = 0 THEN
         IF cur_lit <> 1 THEN
             cur_lit = 1
-            SPRITE CUR_MOB, #cur_x, #cur_y, (256 + GRAM_BLOCK) * 8 + CS_BLUE
+            SPRITE CUR_MOB, #cur_x, #cur_y, #cur_attr
         END IF
     ELSE
         IF cur_lit <> 0 THEN
@@ -213,14 +155,25 @@ cur_tick: PROCEDURE
 END
 
 ' ---------------------------------------------------------------------------
-' term_hint: the row-11 key legend for the terminal. Two versions, because
-' with a keyboard the action button is no longer how you say anything.
+' term_keypad: the keypad in the terminal.
+'
+' Sixty columns of horizontal travel is a long way to walk a disc, so 1-4 jump
+' the window to a column band and ENTER recentres it on the cursor. These keys
+' were decoded but unused before.
 ' ---------------------------------------------------------------------------
-term_hint: PROCEDURE
-    IF ecs_present THEN
-        PRINT AT STATUS_ROW COLOR COL_DIM, "TYPE - CLR HANGS UP "
-    ELSE
-        PRINT AT STATUS_ROW COLOR COL_DIM, "BTN TYPE - CLR URL  "
+term_keypad: PROCEDURE
+    IF in_key >= 1 THEN
+        IF in_key <= 4 THEN
+            vp_i = in_key - 1
+            GOSUB vp_band
+            RETURN
+        END IF
+    END IF
+    IF in_key = KEYPAD_ENTER THEN
+        vp_track = 1
+        BORDER BORDER_FOLLOW
+        GOSUB vp_follow
+        vp_full = 1
     END IF
 END
 
@@ -336,9 +289,10 @@ compose_line: PROCEDURE
     END IF
 
     CLS
-    GOSUB term_repaint
+    GOSUB vp_dirty_all
+    GOSUB vp_paint
+    GOSUB vp_cursor
     GOSUB ecs_flush
-    GOSUB term_hint
     GOSUB cur_show
 END
 
@@ -389,16 +343,20 @@ con_wait:
     END IF
 
     CLS
-    GOSUB term_init
-    GOSUB term_clear_row
+    GOSUB vt_reset
+    GOSUB vp_reset
     GOSUB ecs_flush
-    GOSUB term_hint
     GOSUB cur_show
 
 term_loop:
     WAIT
 
-    ' --- receive: anything waiting? read up to 64 bytes and print it ---
+    ' Keys go out before the round trip as well as after it. A pass costs at
+    ' least one blocking mailbox transaction, so a key typed during the last
+    ' one would otherwise wait a whole extra pass for its echo.
+    GOSUB term_send_keys
+
+    ' --- receive: anything waiting? read a chunk and feed it to the terminal
     GOSUB net_status
     IF fn_ok = 0 THEN
         PRINT AT STATUS_ROW COLOR COL_ERROR, "CONNECTION LOST     "
@@ -412,25 +370,35 @@ lost_wait:
     END IF
     IF #net_avail > 0 THEN
         #net_readlen = #net_avail
-        IF #net_readlen > 64 THEN #net_readlen = 64
+        IF #net_readlen > TERM_READ THEN #net_readlen = TERM_READ
         GOSUB net_read
         IF fn_ok THEN
             FOR nc_i = 0 TO #net_gotlen - 1
                 nc_c = PEEK(FN_RX + nc_i) AND 255
-                GOSUB term_putc
+                GOSUB vt_feed
             NEXT nc_i
         END IF
     END IF
 
     ' --- input: ECS keys go straight out the wire (one write for the whole
-    ' pass); the controller still opens the composer and hangs up ---
+    ' pass); the controller drives the window and opens the composer ---
     GOSUB term_send_keys
     GOSUB in_poll
-    IF in_btn THEN GOSUB compose_line
     IF in_key = KEYPAD_CLEAR THEN
         GOSUB net_close
         GOTO dial
     END IF
+    IF in_btop THEN GOSUB vp_toggle
+    IF in_blow THEN GOSUB compose_line
+    GOSUB vp_pan
+    IF in_key <> KEYPAD_NONE THEN GOSUB term_keypad
+
+    ' --- and only now put it on the screen. Painting once per pass rather
+    ' than once per character is what makes a 20x12 window onto an 80x25
+    ' buffer affordable: a chunk of 256 bytes costs one repaint, not 256.
+    GOSUB vp_follow
+    GOSUB vp_paint
+    GOSUB vp_cursor
     GOTO term_loop
 
 halt:

@@ -11,7 +11,7 @@ packs a cell as
 GROM card N is ASCII N+32, covering 32..95. GRAM cards 0..30 are ASCII 96..126
 (vtfont.bas), and GRAM 43 is the solid block used for cursors.
 """
-import struct, sys, pathlib
+import re, struct, sys, pathlib
 
 STIC = ["black", "blue", "red", "tan", "dkgreen", "green", "yellow", "white",
         "grey", "cyan", "orange", "brown", "pink", "ltblue", "yelgrn", "purple"]
@@ -42,5 +42,37 @@ def main(path):
     for (fg, bg), n in sorted(seen.items(), key=lambda kv: -kv[1]):
         print("     %-8s on %-8s  %3d" % (STIC[fg], STIC[bg], n))
 
+
+
+# --- extra diagnostics, used by tools/termtest.sh -v -------------------------
+def symbols(lst):
+    """Pull IntyBASIC variable addresses out of an as1600 listing."""
+    # The symbol table prints as two columns of "ADDRESS  name" pairs.
+    out = {}
+    for line in open(lst, errors="replace"):
+        for addr, name in re.findall(r'([0-9A-F]{8})\s+var_([A-Z0-9_]+)\b', line):
+            out[name] = int(addr, 16)
+    return out
+
+def dump_state(memfile, lst, rows=None):
+    mem = pathlib.Path(memfile).read_bytes()
+    w = struct.unpack(">%dH" % (len(mem) // 2), mem)
+    sym = symbols(lst)
+    want = ["VX", "VY", "VP_TRACK", "VP_FULL", "VP_DTOP", "VP_DBOT",
+            "VT_COL", "VT_ROW", "VT_PEND", "SR_TOP", "SR_BOT",
+            "AN_STATE", "TERM_FG", "BLANK_LO", "BLANK_HI"]
+    print("   state:", "  ".join("%s=%d" % (n, w[sym[n]] & 0xFF)
+                                 for n in want if n in sym))
+    rowmap = [w[0x9440 + i] & 0xFF for i in range(25)]
+    print("   rowmap:", " ".join("%d" % r for r in rowmap))
+    print("   TBUF (logical rows, columns 0-79):")
+    for r in (rows if rows is not None else range(25)):
+        base = 0x8000 + rowmap[r] * 160
+        cells = [(w[base + c*2] & 0xFF) | ((w[base + c*2 + 1] & 0xFF) << 8)
+                 for c in range(80)]
+        print("   %2d |%s|" % (r, "".join(glyph(c) for c in cells)))
+
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else "dump.mem")
+    if len(sys.argv) > 2:
+        dump_state(sys.argv[1], sys.argv[2])

@@ -8,3 +8,4 @@
 *.cfg
 *.rom
 *.lst
+!vtasm.asm

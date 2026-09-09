@@ -130,6 +130,28 @@ in_poll: PROCEDURE
     END IF
     in_pbtn = in_braw
 
+    ' The terminal needs the buttons told apart -- the top one toggles whether
+    ' the window follows the cursor, the lower ones open the composer -- while
+    ' the character grid still wants "any button" and keeps using in_btn. So
+    ' all three are reported: in_btn (any), in_btop (top), in_blow (lower).
+    in_traw = 0
+    IF CONT.B0 THEN in_traw = 1
+    IF in_traw <> 0 AND in_ptop = 0 THEN
+        in_btop = 1
+    ELSE
+        in_btop = 0
+    END IF
+    in_ptop = in_traw
+
+    in_lraw = 0
+    IF CONT.B1 OR CONT.B2 THEN in_lraw = 1
+    IF in_lraw <> 0 AND in_plow = 0 THEN
+        in_blow = 1
+    ELSE
+        in_blow = 0
+    END IF
+    in_plow = in_lraw
+
     in_key = KEYPAD_NONE
     IF CONT.KEY <> KEYPAD_NONE AND CONT.KEY <> in_pkey THEN
         in_key = CONT.KEY

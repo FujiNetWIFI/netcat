@@ -1,8 +1,16 @@
-HIRESTXT_LIB_VERSION := 0.5.0.1
+HIRESTXT_LIB_VERSION := 0.5.1.6
 CURRENT_TARGET = coco
 
 HIRESTXT_LIB = _cache
+
+# A directory that already holds libhirestxt.a (e.g. a local hirestxt-mod
+# build) is used as is; anything else gets the release downloaded into it.
+ifneq ($(wildcard $(HIRESTXT_LIB)/libhirestxt.a),)
+HIRESTXT_LIB_LOCAL = 1
+HIRESTXT_LIB_VERSION_DIR = $(HIRESTXT_LIB)
+else
 HIRESTXT_LIB_VERSION_DIR = $(HIRESTXT_LIB)/hirestxt-$(HIRESTXT_LIB_VERSION)-$(CURRENT_TARGET)
+endif
 HIRESTXT_LIB_PATH = $(HIRESTXT_LIB_VERSION_DIR)
 HIRESTXT_LIB_DOWNLOAD_URL = https://github.com/RichStephens/hirestxt-mod/releases/download/$(HIRESTXT_LIB_VERSION)/hirestxt-mod-bin-$(HIRESTXT_LIB_VERSION).tar.gz
 HIRESTXT_LIB_DOWNLOAD_FILE = $(HIRESTXT_LIB)/hirestxt-mod-bin-$(HIRESTXT_LIB_VERSION).tar.gz
@@ -10,6 +18,7 @@ HIRESTXT_LIB_BASENAME := $(notdir $(HIRESTXT_LIB_PATH))
 HIRESTXT_LIB_SYMLINK  := libhirestxt.a
 
 .get_hirestxt_lib:
+ifndef HIRESTXT_LIB_LOCAL
 	@if [ ! -f "$(HIRESTXT_LIB_DOWNLOAD_FILE)" ]; then \
 		if [ -d "$(HIRESTXT_LIB_VERSION_DIR)" ]; then \
 			echo "A directory already exists with version $(HIRESTXT_LIB_VERSION) - please remove it first"; \
@@ -29,6 +38,7 @@ HIRESTXT_LIB_SYMLINK  := libhirestxt.a
 		echo "Unzip complete."; \
 		( cd "$(HIRESTXT_LIB_VERSION_DIR)" && ln -sf "$(HIRESTXT_LIB_SYMLINK)" "$(HIRESTXT_LIB_BASENAME)" ); \
 	fi; 
+endif
 
 ifeq ($(PLATFORM),coco)
 CFLAGS += -I$(HIRESTXT_LIB_VERSION_DIR)

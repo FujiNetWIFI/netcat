@@ -97,6 +97,16 @@ byte in(void)
     
     network_read(url, rxBuf, bytesWaiting);
 
+    // Bypass putchar(): the printf hook turns CR into newline, and the fake
+    // cursor below would break VT52 sequences split across reads.
+    if (hirestxt_mode)
+    {
+        for (int i=0;i<bytesWaiting;i++)
+            processConsoleOutChar(rxBuf[i]);
+
+        return fn_error(error);
+    }
+
     putchar('\x08'); // backspace cursor
     
     for (int i=0;i<bytesWaiting;i++)
@@ -138,6 +148,9 @@ void out(void)
 
 byte nc(void)
 {
+    if (hirestxt_mode)
+        animateCursor();
+
     out();
     if (hangup)
         return 0;

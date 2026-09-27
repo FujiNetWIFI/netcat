@@ -27,18 +27,38 @@ void presskey(void)
     waitkey(0);
 }
 
+// Firmware v1.6.1+ reads these for TELNET and SSH only; a URL with its own query is left alone.
+void add_term_params(void)
+{
+    char *u = screen_upper(url);
+
+    if (strchr(url, '?') || (!strstr(u, "TELNET://") && !strstr(u, "SSH://")))
+        return;
+
+    if (strlen(url) > sizeof(url) - 28)
+        return;
+
+    sprintf(url + strlen(url), "?%scols=%u&rows=24",
+            hirestxt_mode ? "term=vt52&" : "", (unsigned) textMode);
+}
+
 int open_connection(void)
 {
     char s[256];    
 
-    char url[256], login[256], password[256];
+    char login[256], password[256];
 
     clear_screen(bgcolor);
 
     printf("WELCOME TO NETCAT\n");
     printf("ENTER URL, e.g.\n");
     printf("N:TELNET://BBS.FOZZTEXX.COM/\n");
-    printf("\n\n");
+    printf("\n");
+    if (hirestxt_mode)
+        printf("IN SESSION, HOLD CLEAR AS CTRL\n(E.G. CLEAR+C SENDS CTRL-C)\nCLEAR+BREAK HANGS UP\n");
+    else
+        printf("IN SESSION, CTRL+KEY SENDS CTRL-KEY\nCTRL+BREAK HANGS UP\n");
+    printf("\n");
     get_line(url,255);
 
     printf("\nENTER LOGIN, OR enter\nFOR NONE\n");
@@ -49,7 +69,9 @@ int open_connection(void)
     printf("\nENTER PASSWORD, OR enter\nFOR NONE\n");
     get_line(password,255);
     net_password(url,password);
-    
+
+    add_term_params();
+
     return network_open(url, OPEN_MODE_RW, OPEN_TRANS_NONE);
 }
 
@@ -90,9 +112,22 @@ byte in(void)
     return fn_error(error);
 }
 
+bool hangup = false;
+
 void out(void)
 {
     cursor(false);
+
+    if (isKeyPressed(KEY_PROBE_BREAK, KEY_BIT_BREAK) &&
+        (hirestxt_mode ? isKeyPressed(KEY_PROBE_CLEAR, KEY_BIT_CLEAR)
+                       : isKeyPressed(KEY_PROBE_CTRL, KEY_BIT_CTRL)))
+    {
+        hangup = true;
+        while (isKeyPressed(KEY_PROBE_BREAK, KEY_BIT_BREAK))
+            ;
+        return;
+    }
+
     byte k=cgetc();
 
     if (k)
@@ -104,6 +139,8 @@ void out(void)
 byte nc(void)
 {
     out();
+    if (hangup)
+        return 0;
     in();
 
     return conn;

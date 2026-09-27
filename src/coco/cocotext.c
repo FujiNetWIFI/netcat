@@ -8,7 +8,7 @@
 #define SCREEN_BUFFER (byte*) 0xA00
 
 /**
- * @brief Temp space for strupr(s) output, so original strings doesn't get changed.
+ * @brief Temp space for screen_upper()/screen_lower() output, so the original string isn't changed.
  */
 static char uppercase_tmp[321];
 
@@ -126,7 +126,7 @@ char *screen_upper(const char *s)
 }
 
 /**
- * @brief Return uppercase string without modifying original
+ * @brief Return lowercase string without modifying original
  */
 char *screen_lower(const char *s)
 {
@@ -163,57 +163,104 @@ void set_text_width(byte screen_width)
 }
 
 
+// Hirestxt-mode CTRL chord: CLEAR+letter. A lone CLEAR is sent on release.
+static bool clear_held = false;
+static bool clear_chorded = false;
+static byte stashed_key = 0;
+
+static byte decode_key(byte k)
+{
+    byte shift = 0;
+
+	// CoCo 3 only. Non-letters, including CTRL's own stray code, are dropped.
+	if (isKeyPressed(KEY_PROBE_CTRL, KEY_BIT_CTRL))
+	{
+		if ((k >= 'A' && k <= 'Z') || (k >= 'a' && k <= 'z'))
+			return k & 0x1F;
+		return 0;
+	}
+
+	if (hirestxt_mode)
+	{
+		if (k == 0x0C)
+		{
+			clear_held = true;
+			clear_chorded = false;
+			return 0;
+		}
+
+		if (clear_held && k)
+		{
+			clear_chorded = true;
+			if ((k >= 'A' && k <= 'Z') || (k >= 'a' && k <= 'z'))
+				return k & 0x1F;
+			return 0;
+		}
+	}
+
+	if (isKeyPressed(KEY_PROBE_SHIFT, KEY_BIT_SHIFT))
+	{
+		if (k == BREAK)
+		{
+			shift = 0x18; // Send an ESC key if SHIFT+BREAK is hit
+		}
+	}
+	else
+    {
+        if (k > '@' && k < '[')
+        {
+            shift = 0x20;
+        }
+    }
+
+    return k + shift;
+}
+
 byte cgetc() 
 {
-    byte shift = false;
     byte k;
 
-    while (true)
+    if (stashed_key)
     {
-        if (hirestxt_mode)
-        {
-            if (cursor_on)
-            {  
-                k = waitKeyBlinkingCursor();
-            }
-            else
-            {
-                k = inkey();
-            }
+        k = stashed_key;
+        stashed_key = 0;
+        return k;
+    }
+
+    if (hirestxt_mode)
+    {
+        if (cursor_on)
+        {  
+            k = waitKeyBlinkingCursor();
         }
         else
         {
-            if (cursor_on)
-            {
-                k = waitkey(cursor_on);
-            }
-            else
-            {
-                k = inkey();
-            }
+            k = inkey();
         }
-
-		if (isKeyPressed(KEY_PROBE_SHIFT, KEY_BIT_SHIFT))
-		{
-			if (k == BREAK)
-			{
-				shift = 0x18; // Send an ESC key if SHIFT+BREAK is hit
-			}
-			else
-			{
-				shift = 0x00;
-			}
-		}
-		else
-        {
-            if (k > '@' && k < '[')
-            {
-                shift = 0x20;
-            }
-        }
-
-        return k + shift;
     }
+    else
+    {
+        if (cursor_on)
+        {
+            k = waitkey(cursor_on);
+        }
+        else
+        {
+            k = inkey();
+        }
+    }
+
+    if (clear_held && !isKeyPressed(KEY_PROBE_CLEAR, KEY_BIT_CLEAR))
+    {
+        clear_held = false;
+        if (!clear_chorded)
+        {
+            stashed_key = decode_key(k);
+            return 0x0C;
+        }
+    }
+
+    return decode_key(k);
 }
 
 void get_line(char *buf, uint8_t max_len)

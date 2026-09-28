@@ -1,4 +1,4 @@
-HIRESTXT_LIB_VERSION := 0.5.1.6
+HIRESTXT_LIB_VERSION :=
 CURRENT_TARGET = coco
 
 HIRESTXT_LIB = _cache
@@ -9,6 +9,10 @@ ifneq ($(wildcard $(HIRESTXT_LIB)/libhirestxt.a),)
 HIRESTXT_LIB_LOCAL = 1
 HIRESTXT_LIB_VERSION_DIR = $(HIRESTXT_LIB)
 else
+# Blank version means the latest release.
+ifeq ($(strip $(HIRESTXT_LIB_VERSION)),)
+override HIRESTXT_LIB_VERSION := $(shell curl -s https://api.github.com/repos/RichStephens/hirestxt-mod/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
+endif
 HIRESTXT_LIB_VERSION_DIR = $(HIRESTXT_LIB)/hirestxt-$(HIRESTXT_LIB_VERSION)-$(CURRENT_TARGET)
 endif
 HIRESTXT_LIB_PATH = $(HIRESTXT_LIB_VERSION_DIR)
@@ -19,13 +23,17 @@ HIRESTXT_LIB_SYMLINK  := libhirestxt.a
 
 .get_hirestxt_lib:
 ifndef HIRESTXT_LIB_LOCAL
-	@if [ ! -f "$(HIRESTXT_LIB_DOWNLOAD_FILE)" ]; then \
+	@if [ -z "$(HIRESTXT_LIB_VERSION)" ]; then \
+		echo "ERROR: Unable to determine latest hirestxt-mod release"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$(HIRESTXT_LIB_DOWNLOAD_FILE)" ]; then \
 		if [ -d "$(HIRESTXT_LIB_VERSION_DIR)" ]; then \
 			echo "A directory already exists with version $(HIRESTXT_LIB_VERSION) - please remove it first"; \
 			exit 1; \
 		fi; \
 		HTTPSTATUS=$$(curl -Is $(HIRESTXT_LIB_DOWNLOAD_URL) | head -n 1 | awk '{print $$2}'); \
-		if [ "$${HTTPSTATUS}" == "404" ]; then \
+		if [ "$${HTTPSTATUS}" = "404" ]; then \
 			echo "ERROR: Unable to find file $(HIRESTXT_LIB_DOWNLOAD_URL)"; \
 			exit 1; \
 		fi; \

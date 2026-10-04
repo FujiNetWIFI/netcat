@@ -51,14 +51,14 @@ int open_connection(void)
     clear_screen(bgcolor);
 
     printf("WELCOME TO NETCAT\n");
-    printf("ENTER URL, e.g.\n");
-    printf("N:TELNET://BBS.FOZZTEXX.COM/\n");
     printf("\n");
     if (hirestxt_mode)
-        printf("IN SESSION, HOLD CLEAR AS CTRL\n(E.G. CLEAR+C SENDS CTRL-C)\nCLEAR+BREAK HANGS UP\n");
+        printf("IN SESSION, HOLD CLEAR AS CTRL\n(E.G. CLEAR+C SENDS CTRL-C)\nCLEAR+BREAK HANGS UP\nCLEAR+1..0: [ ] { } | \\ _ ~ ` ^\n");
     else
-        printf("IN SESSION, CTRL+KEY SENDS CTRL-KEY\nCTRL+BREAK HANGS UP\n");
+        printf("IN SESSION, CTRL+KEY SENDS CTRL-KEY\nCTRL+BREAK HANGS UP\nALT+1..0: [ ] { } | \\ _ ~ ` ^\n");
     printf("\n");
+    printf("ENTER URL, e.g.\n");
+    printf("N:TELNET://BBS.FOZZTEXX.COM/\n");
     get_line(url,255);
 
     printf("\nENTER LOGIN, OR enter\nFOR NONE\n");

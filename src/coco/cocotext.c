@@ -168,6 +168,9 @@ static bool clear_held = false;
 static bool clear_chorded = false;
 static byte stashed_key = 0;
 
+// ALT+digit (CLEAR+digit in hirestxt mode): symbols the keyboard lacks. Same table as vt100.
+static const char alt_syms[10] = { '^','[',']','{','}','|','\\','_','~','`' };
+
 static byte decode_key(byte k)
 {
     byte shift = 0;
@@ -177,6 +180,13 @@ static byte decode_key(byte k)
 	{
 		if ((k >= 'A' && k <= 'Z') || (k >= 'a' && k <= 'z'))
 			return k & 0x1F;
+		return 0;
+	}
+
+	if (isKeyPressed(KEY_PROBE_ALT, KEY_BIT_ALT))
+	{
+		if (k >= '0' && k <= '9')
+			return alt_syms[k - '0'];
 		return 0;
 	}
 
@@ -194,6 +204,8 @@ static byte decode_key(byte k)
 			clear_chorded = true;
 			if ((k >= 'A' && k <= 'Z') || (k >= 'a' && k <= 'z'))
 				return k & 0x1F;
+			if (k >= '0' && k <= '9')
+				return alt_syms[k - '0'];
 			return 0;
 		}
 	}

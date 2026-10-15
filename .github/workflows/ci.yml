@@ -13,15 +13,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - adam
-          - apple2
-          - atari
-          - vic20
-          - coco
+        # The H89 builds need a z88dk with +hdos, which 1.4.2 predates
+        include:
+          - { platform: adam, image: "fozztexx/defoogi:1.4.2" }
+          - { platform: apple2, image: "fozztexx/defoogi:1.4.2" }
+          - { platform: atari, image: "fozztexx/defoogi:1.4.2" }
+          - { platform: vic20, image: "fozztexx/defoogi:1.4.2" }
+          - { platform: coco, image: "fozztexx/defoogi:1.4.2" }
+          - { platform: h89-cpm, image: "fozztexx/defoogi:1.4.8" }
+          - { platform: h89-hdos, image: "fozztexx/defoogi:1.4.8" }
 
     container:
-      image: fozztexx/defoogi:1.4.2
+      image: ${{ matrix.image }}
 
     steps:
       - uses: actions/checkout@v4

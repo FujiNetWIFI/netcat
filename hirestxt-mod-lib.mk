@@ -1,23 +1,23 @@
 HIRESTXT_LIB_VERSION :=
 CURRENT_TARGET = coco
 
-HIRESTXT_LIB = _cache
+HIRESTXT_CACHE = _cache
 
 # A directory that already holds libhirestxt.a (e.g. a local hirestxt-mod
 # build) is used as is; anything else gets the release downloaded into it.
-ifneq ($(wildcard $(HIRESTXT_LIB)/libhirestxt.a),)
+ifneq ($(wildcard $(HIRESTXT_CACHE)/libhirestxt.a),)
 HIRESTXT_LIB_LOCAL = 1
-HIRESTXT_LIB_VERSION_DIR = $(HIRESTXT_LIB)
+HIRESTXT_LIB_VERSION_DIR = $(HIRESTXT_CACHE)
 else
 # Blank version means the latest release.
 ifeq ($(strip $(HIRESTXT_LIB_VERSION)),)
 override HIRESTXT_LIB_VERSION := $(shell curl -s https://api.github.com/repos/RichStephens/hirestxt-mod/releases/latest | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
 endif
-HIRESTXT_LIB_VERSION_DIR = $(HIRESTXT_LIB)/hirestxt-$(HIRESTXT_LIB_VERSION)-$(CURRENT_TARGET)
+HIRESTXT_LIB_VERSION_DIR = $(HIRESTXT_CACHE)/hirestxt-$(HIRESTXT_LIB_VERSION)-$(CURRENT_TARGET)
 endif
 HIRESTXT_LIB_PATH = $(HIRESTXT_LIB_VERSION_DIR)
 HIRESTXT_LIB_DOWNLOAD_URL = https://github.com/RichStephens/hirestxt-mod/releases/download/$(HIRESTXT_LIB_VERSION)/hirestxt-mod-bin-$(HIRESTXT_LIB_VERSION).tar.gz
-HIRESTXT_LIB_DOWNLOAD_FILE = $(HIRESTXT_LIB)/hirestxt-mod-bin-$(HIRESTXT_LIB_VERSION).tar.gz
+HIRESTXT_LIB_DOWNLOAD_FILE = $(HIRESTXT_CACHE)/hirestxt-mod-bin-$(HIRESTXT_LIB_VERSION).tar.gz
 HIRESTXT_LIB_BASENAME := $(notdir $(HIRESTXT_LIB_PATH))
 HIRESTXT_LIB_SYMLINK  := libhirestxt.a
 
@@ -38,7 +38,7 @@ ifndef HIRESTXT_LIB_LOCAL
 			exit 1; \
 		fi; \
 		echo "Downloading hirestxt-mod for $(CURRENT_TARGET) version $(HIRESTXT_LIB_VERSION) from $(HIRESTXT_LIB_DOWNLOAD_URL)"; \
-		mkdir -p $(HIRESTXT_LIB); \
+		mkdir -p $(HIRESTXT_CACHE); \
 		mkdir -p $(HIRESTXT_LIB_VERSION_DIR); \
 		curl -sL $(HIRESTXT_LIB_DOWNLOAD_URL) -o $(HIRESTXT_LIB_DOWNLOAD_FILE); \
 		echo "Unzipping to $(HIRESTXT_LIB_VERSION_DIR)"; \

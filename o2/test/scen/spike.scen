@@ -1,0 +1,12 @@
+# The engine alone (SPIKE=1): its test pattern, a pan, a roll of the ring.
+# spike
+# steady: steady
+wait 90
+snap home
+hold right 12
+snap pan24
+hold right 40
+snap pan64
+press down
+snap roll1
+burst steady 30

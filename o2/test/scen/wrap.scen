@@ -1,0 +1,15 @@
+# A 100-column line wraps at 80; the stick pans the window across it.
+# fixture: data/wrap.txt
+# screen: A123456789B123456789C123456789D123456789E123456789F123456789G123456789H123456789
+# screen: I123456789J123456789
+# screen: END
+# screen: cursor 3,6  window 48-63  free
+wait 240
+snap home
+hold right 64
+snap right
+hold up 4
+snap up
+cart 400 1024
+iram 20 11
+xram 0 4

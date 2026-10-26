@@ -1,0 +1,15 @@
+# N:TELNET: FujiNet negotiates (offering the window size), the text still
+# arrives, the keys still go.
+# fixture: --echo data/lines.txt
+# endpoint: N:TELNET://127.0.0.1:PORT/
+# sent: b'\xff\xfb\x1f'
+# sent: b'ok\r\n'
+# screen: ENDOK
+wait 240
+snap telnet
+type OK
+key ENT
+wait 60
+cart 400 1024
+iram 20 11
+xram 0 4

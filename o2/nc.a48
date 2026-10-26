@@ -1,0 +1,21 @@
+; nc.a48 -- netcat for the Magnavox Odyssey 2 / Philips Videopac, over
+; FujiNet. A protocol 2 (APPBANK) image: the fixed half (src/fixed.inc: the
+; display engine and the terminal's rows) and NPAGES pages, one assembly per
+; page; build.sh sets PAGE (and SPIKE, for the engine's test pattern).
+
+    cpu 8048
+    include "g7000.h"
+    include "equ.inc"
+    include "ram.inc"
+    include "page.inc"
+    include "fixed.inc"
+
+    if PAGE=0
+    if SPIKE
+    include "spike.inc"
+    else
+    include "p0.inc"
+    endif
+    elseif PAGE=1
+    include "p1.inc"
+    endif

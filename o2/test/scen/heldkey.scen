@@ -1,0 +1,9 @@
+# A key held down: the BIOS debounces it every frame with the vblank held
+# off; no line may lose pixels. No echo: only the cursor blinks.
+# fixture: data/lines.txt
+# sent: b'a'
+# steady: still
+# steady: held
+wait 240
+burst still 20
+burstkey held 40 A

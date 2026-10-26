@@ -1,0 +1,10 @@
+# Escape sequences, UTF-8 and stray controls leave nothing on the screen;
+# TAB goes to the next multiple of 8.
+# fixture: data/esc.txt
+# screen: ABCDEFGH        I
+# screen: JKLMN
+wait 240
+snap esc
+cart 400 1024
+iram 20 11
+xram 0 4

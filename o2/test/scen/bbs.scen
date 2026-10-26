@@ -1,0 +1,12 @@
+# Not a test: the default build, live (test/rig.sh test/scen/bbs.scen OUT):
+# the BBS's first screen, panned, the screen as text (tools/screen.py).
+wait 600
+snap bbs1
+hold right 30
+snap bbs1r
+press fire
+wait 300
+snap bbs2
+cart 400 1024
+iram 20 11
+xram 0 4

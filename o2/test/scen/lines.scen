@@ -1,0 +1,15 @@
+# Ten lines: the screen scrolls; the window comes back to the cursor.
+# fixture: data/lines.txt
+# screen: LINE 9: THE QUICK BROWN FOX.
+# screen: LINE 10: THE QUICK BROWN FOX.
+# screen: END
+# screen: cursor 3,6  window 0-15  follow
+wait 240
+snap lines
+hold right 40
+snap right
+press fire
+snap back
+cart 400 1024
+iram 20 11
+xram 0 4

@@ -1,0 +1,34 @@
+# The keyboard: lower case, ENT as CR LF, YES and NO as y and n; x shifts
+# the next key (A, 1 !, . comma, x *), divide makes it a control code (C ^C,
+# divide /); CLR backspaces.
+# fixture: --echo data/ready.txt
+# sent: b'hello\r\nABcd!,\x03yn*/ \x08'
+# screen: HELLO
+# screen: ABCD .YN*/
+wait 240
+type HELLO
+key ENT
+key *
+type A
+key *
+type BCD
+key *
+type 1
+key *
+type .
+key /
+type C
+type YN
+key *
+wait 30
+snap shifted
+key *
+key /
+key /
+key SPACE
+key CLR
+wait 60
+snap keys
+cart 400 1024
+iram 20 11
+xram 0 4

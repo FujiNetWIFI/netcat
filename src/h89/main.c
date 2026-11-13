@@ -10,7 +10,7 @@
  * straight to the host, and TELNET and SSH are told term=h19 so the far end
  * draws for it. Everything else (TCP, HTTP, ...) is more likely a text file
  * with bare LF line ends, so there a LF gets the CR the H19 needs in front of
- * it. f5 (ESC W) hangs up.
+ * it. BREAK hangs up.
  */
 
 #include <stdint.h>
@@ -23,10 +23,10 @@
 #define BS 0x08
 #define DEL 0x7F
 
-// f5 sends ESC W. The H19 sends the pair back to back at 9600 baud, so an
-// ESC with nothing behind it after this many polls is the ESC key itself
-// (each poll is a BIOS or HDOS call, roughly 0.1-0.25 ms).
-#define KEY_HANGUP 'W'
+// The H19's BREAK key reaches the console as a NUL (CTRL-@ is a NUL too, so it
+// hangs up as well). Function keys send ESC plus a letter back to back at 9600
+// baud, so an ESC with nothing behind it after this many polls is the ESC key
+// itself (each poll is a BIOS or HDOS call, roughly 0.1-0.25 ms).
 #define ESC_POLLS 200
 
 // How many unhappy STATUS polls in a row mean the connection has gone.
@@ -57,7 +57,7 @@ static uint8_t add_cr;
 static const char banner[] =
     "NetCat for the Heathkit H89 - a FujiNet terminal" CRLF
     CRLF
-    "Usage: NC <URL>    f5 hangs up." CRLF
+    "Usage: NC <URL>    BREAK hangs up." CRLF
     "The command line arrives in upper case; type a case-sensitive URL here." CRLF
     CRLF
     "Enter URL, e.g. N:TELNET://BBS.FOZZTEXX.COM/  (RETURN alone quits)" CRLF
@@ -173,7 +173,7 @@ static void make_spec(const char *url)
         strcat(spec, TERM_PARAMS);
 }
 
-/** Queue one key for the host, f5 sets hangup instead; 0 if none taken */
+/** Queue one key for the host, BREAK sets hangup instead; 0 if none taken */
 static uint8_t take_key(void)
 {
     int c, n;
@@ -185,14 +185,14 @@ static uint8_t take_key(void)
     if (c < 0)
         return 0;
 
+    if (c == 0)
+    {
+        hangup = 1;
+        return 0;
+    }
     if (c == ESC)
     {
         n = esc_follower();
-        if (n == KEY_HANGUP)
-        {
-            hangup = 1;
-            return 0;
-        }
         txq[txn++] = ESC;
         if (n >= 0)
             txq[txn++] = n;
@@ -260,7 +260,7 @@ static void session(void)
 
     con_puts("Connecting to ");
     con_puts(spec);
-    con_puts("  (f5 hangs up)" CRLF);
+    con_puts("  (BREAK hangs up)" CRLF);
 
     if (network_open(spec, OPEN_MODE_RW, OPEN_TRANS_NONE) != FN_ERR_OK)
     {

@@ -29,10 +29,10 @@ SRC_DIRS = src src/%PLATFORM%
 # - undefined, no fujinet-lib will be used
 FUJINET_LIB = https://github.com/FozzTexx/fujinet-lib-experimental.git
 
-# The H89's bus is only in fujinet-lib itself, which has no H89 release
-# archive yet, so both H89 builds take it from git.
+# The H89's bus is only in fujinet-lib itself (not the experimental one);
+# release 5.1.1 is the first to ship H89 archives.
 ifneq ($(filter h89-cpm h89-hdos,$(PLATFORM)),)
-  FUJINET_LIB = https://github.com/FujiNetWIFI/fujinet-lib.git
+  FUJINET_LIB = 5.1.1
 endif
 
 # Some platforms don’t use FUJINET_LIB; set this to allow builds to continue
